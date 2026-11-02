@@ -5,8 +5,10 @@ import AdminLayout from '../layouts/AdminLayout.vue'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
 import DashboardView from '../views/DashboardView.vue'
+import EmployeesView from '../views/EmployeesView.vue'
 import LoginView from '../views/LoginView.vue'
 import PlaceholderView from '../views/PlaceholderView.vue'
+import TokensView from '../views/TokensView.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -28,20 +30,12 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'employees',
         name: 'employees',
-        component: PlaceholderView,
-        props: {
-          title: '员工管理',
-          description: '维护员工档案、状态与访问策略。',
-        },
+        component: EmployeesView,
       },
       {
         path: 'tokens',
         name: 'tokens',
-        component: PlaceholderView,
-        props: {
-          title: 'Token 管理',
-          description: '签发、轮换与吊销员工访问 Token。',
-        },
+        component: TokensView,
       },
       {
         path: 'providers',
