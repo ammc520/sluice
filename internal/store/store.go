@@ -16,6 +16,8 @@ var (
 	ErrQuotaExceeded = errors.New("store: quota exceeded")
 	// ErrConflict is returned when a unique constraint is violated.
 	ErrConflict = errors.New("store: conflict")
+	// ErrInvalidReference is returned when a foreign key target does not exist.
+	ErrInvalidReference = errors.New("store: invalid reference")
 )
 
 // TokenFilter filters token listings.

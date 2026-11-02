@@ -16,6 +16,9 @@ import (
 	"github.com/company/api-key/migrations"
 )
 
+// New wraps an existing connection pool. The pool remains owned by the caller.
+func New(pool *pgxpool.Pool) *Store { return newStore(pool) }
+
 // Store aggregates the PostgreSQL-backed persistence implementations.
 // The sub-stores share one connection pool but expose distinct method sets,
 // because the domain interfaces reuse method names (Create/Get/Update/List)
@@ -89,8 +92,13 @@ func mapError(err error) error {
 		return store.ErrNotFound
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return store.ErrConflict
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23505":
+			return store.ErrConflict
+		case "23503":
+			return store.ErrInvalidReference
+		}
 	}
 	return err
 }

@@ -13,6 +13,8 @@ import (
 	"github.com/company/api-key/migrations"
 )
 
+const testLockKey int64 = 0x6170692d6b6579 // "api-key"
+
 var tables = []string{
 	"settings",
 	"admin_audit_logs",
@@ -45,6 +47,22 @@ func OpenTestDB(t *testing.T) *pgxpool.Pool {
 	if err := pool.Ping(ctx); err != nil {
 		t.Fatalf("ping test db: %v", err)
 	}
+
+	// go test runs package binaries in parallel, and all packages share the
+	// same TEST_DATABASE_URL. Serialize DB tests with an advisory lock so one
+	// package cannot truncate tables under another.
+	lockConn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire test lock connection: %v", err)
+	}
+	if _, err := lockConn.Exec(ctx, "SELECT pg_advisory_lock($1)", testLockKey); err != nil {
+		lockConn.Release()
+		t.Fatalf("acquire test lock: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = lockConn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", testLockKey)
+		lockConn.Release()
+	})
 
 	if err := migrate(ctx, url); err != nil {
 		t.Fatalf("migrate test db: %v", err)
