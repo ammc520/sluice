@@ -33,10 +33,18 @@ type adminUserDTO struct {
 	Role        string     `json:"role"`
 	Status      int16      `json:"status"`
 	LastLoginAt *time.Time `json:"last_login_at,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 func toAdminUserDTO(u *store.AdminUser) adminUserDTO {
-	return adminUserDTO{ID: u.ID.String(), Username: u.Username, Role: u.Role, Status: u.Status, LastLoginAt: u.LastLoginAt}
+	return adminUserDTO{
+		ID:          u.ID.String(),
+		Username:    u.Username,
+		Role:        u.Role,
+		Status:      u.Status,
+		LastLoginAt: u.LastLoginAt,
+		CreatedAt:   u.CreatedAt,
+	}
 }
 
 // Login handles POST /admin/api/auth/login.

@@ -38,6 +38,7 @@ type adminEnv struct {
 	departmentID int64
 	providerID   string
 	sessions     map[string]adminSession
+	settings     *SettingsHandler
 }
 
 func newAdminEnv(t *testing.T) *adminEnv {
@@ -95,6 +96,8 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	dlpTester := NewDLPTestHandler(pg.DLPRules)
 	auditHandler := NewAuditHandler(pg.Audit, pg.Admins, env.cipher, time.Now, nil)
 	dashboard := NewDashboardHandler(pg.Audit, time.Now)
+	env.settings = NewSettingsHandler(pg.Settings, pg.Admins, env.cipher, nil, time.Now, nil)
+	adminUsers := NewAdminUsersHandler(pg.Admins, nil)
 
 	r := gin.New()
 	api := r.Group("/admin/api")
@@ -138,6 +141,18 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.GET("/dashboard/trend", dashboard.Trend)
 	authed.GET("/dashboard/top-users", dashboard.TopUsers)
 	authed.GET("/dashboard/dlp", dashboard.DLP)
+
+	super := authed.Group("", adminauth.RequireRole("super_admin"))
+	super.GET("/settings/smtp", env.settings.GetSMTP)
+	super.PUT("/settings/smtp", env.settings.PutSMTP)
+	super.POST("/settings/smtp/test", env.settings.TestSMTP)
+	super.GET("/settings/audit", env.settings.GetAuditSettings)
+	super.PUT("/settings/audit", env.settings.PutAuditSettings)
+
+	super.GET("/admin-users", adminUsers.List)
+	super.POST("/admin-users", adminUsers.Create)
+	super.PUT("/admin-users/:id", adminUsers.Update)
+	super.POST("/admin-users/:id/reset-password", adminUsers.ResetPassword)
 
 	env.engine = r
 	return env

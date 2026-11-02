@@ -54,6 +54,10 @@ type smtpMailer struct {
 	err error
 }
 
+// ValidateSMTPConfig checks a configuration without attempting a connection.
+// Administrative settings endpoints use it to reject invalid saves early.
+func ValidateSMTPConfig(cfg SMTPConfig) error { return validateSMTPConfig(cfg) }
+
 func validateSMTPConfig(cfg SMTPConfig) error {
 	if strings.TrimSpace(cfg.Host) == "" || strings.ContainsAny(cfg.Host, " \t\r\n/:") {
 		return errors.New("alert: SMTP host is invalid")
