@@ -632,33 +632,77 @@ func TestBodyTooLargeReturns413(t *testing.T) {
 }
 
 func TestRequestIDHeader(t *testing.T) {
-	t.Run("client value preserved", func(t *testing.T) {
+	t.Run("server id differs from client correlation id", func(t *testing.T) {
 		_, f := newHandlerFixture(t)
 		rr := f.run(t, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`, func(r *http.Request) {
 			r.Header.Set(RequestIDHeader, "client-req-123")
 		})
-		if got := rr.Header().Get(RequestIDHeader); got != "client-req-123" {
+		got := rr.Header().Get(RequestIDHeader)
+		if len(got) != 36 || got == "client-req-123" {
 			t.Fatalf("response request id %q", got)
 		}
-		if event := f.audit.last(); event.RequestID != "client-req-123" {
-			t.Fatalf("audit request id %q", event.RequestID)
+		if client := rr.Header().Get(ClientRequestIDHeader); client != "client-req-123" {
+			t.Fatalf("client request id %q", client)
 		}
-		if f.upstream.request.RequestID != "client-req-123" {
-			t.Fatalf("upstream request id %q", f.upstream.request.RequestID)
+		if event := f.audit.last(); event.RequestID != got {
+			t.Fatalf("audit request id %q want %q", event.RequestID, got)
+		}
+		if f.upstream.request.RequestID != got {
+			t.Fatalf("upstream request id %q want %q", f.upstream.request.RequestID, got)
 		}
 	})
 
-	t.Run("unsafe value replaced", func(t *testing.T) {
+	t.Run("client cannot reuse an audit id", func(t *testing.T) {
+		_, f := newHandlerFixture(t)
+		for i := 0; i < 2; i++ {
+			f.run(t, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`, func(r *http.Request) {
+				r.Header.Set(RequestIDHeader, "same-id")
+			})
+		}
+		if len(f.audit.events) != 2 || f.audit.events[0].RequestID == f.audit.events[1].RequestID {
+			t.Fatalf("audit request ids %+v", f.audit.events)
+		}
+	})
+
+	t.Run("unsafe client value is not echoed", func(t *testing.T) {
 		_, f := newHandlerFixture(t)
 		rr := f.run(t, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`, func(r *http.Request) {
 			r.Header.Set(RequestIDHeader, "bad id with spaces")
 		})
 		got := rr.Header().Get(RequestIDHeader)
-		if got == "bad id with spaces" || !requestIDPattern.MatchString(got) || len(got) != 36 {
+		if got == "bad id with spaces" || len(got) != 36 {
 			t.Fatalf("generated request id %q", got)
+		}
+		if client := rr.Header().Get(ClientRequestIDHeader); client != "" {
+			t.Fatalf("unsafe client id echoed as %q", client)
 		}
 		if event := f.audit.last(); event.RequestID != got {
 			t.Fatalf("audit request id %q want %q", event.RequestID, got)
+		}
+	})
+}
+
+func TestAuditClientIPUsesTrustedProxyRules(t *testing.T) {
+	t.Run("untrusted peer cannot spoof forwarded header", func(t *testing.T) {
+		_, f := newHandlerFixture(t)
+		f.run(t, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`, func(r *http.Request) {
+			r.RemoteAddr = "198.51.100.9:1234"
+			r.Header.Set("X-Forwarded-For", "203.0.113.7")
+		})
+		if event := f.audit.last(); event.ClientIP != "198.51.100.9" {
+			t.Fatalf("client ip %q", event.ClientIP)
+		}
+	})
+
+	t.Run("trusted proxy forwards the original client", func(t *testing.T) {
+		_, f := newHandlerFixture(t)
+		f.handler.deps.TrustedProxies = []string{"192.0.2.0/24"}
+		f.run(t, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`, func(r *http.Request) {
+			r.RemoteAddr = "192.0.2.10:1234"
+			r.Header.Set("X-Forwarded-For", "203.0.113.7, 192.0.2.11")
+		})
+		if event := f.audit.last(); event.ClientIP != "203.0.113.7" {
+			t.Fatalf("client ip %q", event.ClientIP)
 		}
 	})
 }
@@ -921,8 +965,15 @@ func TestErrorResponseEnvelopeHasRequestID(t *testing.T) {
 		r.Header.Set(RequestIDHeader, "fixed-req-id")
 	})
 	env := decodeError(t, rr)
-	if env.Error.RequestID != "fixed-req-id" {
+	if env.Error.RequestID == "" || env.Error.RequestID == "fixed-req-id" {
 		t.Fatalf("request id %q", env.Error.RequestID)
+	}
+	if env.Error.RequestID != rr.Header().Get(RequestIDHeader) {
+		t.Fatalf("response request id %q error request id %q",
+			rr.Header().Get(RequestIDHeader), env.Error.RequestID)
+	}
+	if rr.Header().Get(ClientRequestIDHeader) != "fixed-req-id" {
+		t.Fatalf("client request id %q", rr.Header().Get(ClientRequestIDHeader))
 	}
 	if rr.Header().Get("Content-Type") != "application/json; charset=utf-8" {
 		t.Fatalf("content type %q", rr.Header().Get("Content-Type"))

@@ -96,15 +96,14 @@ func routeMatches(route store.ModelRoute, model string) bool {
 	}
 }
 
-// ProtocolForPath maps a supported gateway path to its wire protocol.
+// ProtocolForPath maps an exact supported gateway path to its wire protocol.
+// Prefix matching is deliberately avoided so path traversal cannot reach
+// arbitrary endpoints on the provider host.
 func ProtocolForPath(requestPath string) (string, bool) {
-	switch {
-	case requestPath == "/v1/messages" || strings.HasPrefix(requestPath, "/v1/messages/"):
+	switch requestPath {
+	case "/v1/messages", "/v1/messages/count_tokens":
 		return "anthropic", true
-	case requestPath == "/v1/chat/completions",
-		requestPath == "/v1/completions",
-		requestPath == "/v1/embeddings",
-		requestPath == "/v1/models":
+	case "/v1/chat/completions", "/v1/completions", "/v1/embeddings", "/v1/models":
 		return "openai_compatible", true
 	default:
 		return "", false

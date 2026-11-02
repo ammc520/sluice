@@ -73,13 +73,16 @@ type requestMeta struct {
 // one audit event; audit and alert enqueueing never wait for persistence.
 func (h *Handler) Handle(c *gin.Context) {
 	start := h.now()
-	reqID := requestID(c.Request)
+	reqID := requestID()
 	c.Header(RequestIDHeader, reqID)
+	if clientID := clientRequestID(c.Request); clientID != "" {
+		c.Header(ClientRequestIDHeader, clientID)
+	}
 
 	st := &requestState{event: audit.Event{
 		RequestID: reqID,
 		EventTime: start,
-		ClientIP:  c.ClientIP(),
+		ClientIP:  auth.ClientIP(c.Request, h.deps.TrustedProxies),
 		Method:    c.Request.Method,
 		Path:      c.Request.URL.Path,
 		DLPAction: "none",

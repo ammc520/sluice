@@ -71,6 +71,9 @@ type HandlerDeps struct {
 
 	// MaxBodyBytes limits request bodies. Zero uses 2 MiB.
 	MaxBodyBytes int64
-	Logger       *slog.Logger
-	Clock        func() time.Time
+	// TrustedProxies lists CIDRs whose X-Forwarded-For header is trusted when
+	// deriving the audit client IP. Empty trusts only the direct peer.
+	TrustedProxies []string
+	Logger         *slog.Logger
+	Clock          func() time.Time
 }

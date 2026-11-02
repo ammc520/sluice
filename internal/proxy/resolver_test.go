@@ -49,7 +49,12 @@ func TestProtocolForPath(t *testing.T) {
 			t.Errorf("%s: got %q,%v want %q", path, got, ok, want)
 		}
 	}
-	for _, path := range []string{"/v1/responses", "/healthz", "/v1/messagesx"} {
+	for _, path := range []string{
+		"/v1/responses", "/healthz", "/v1/messagesx",
+		"/v1/messages/", "/v1/messages/count_tokens/extra",
+		"/v1/messages/../admin", "/v1/messages/%2e%2e/admin",
+		"/v1/chat/completions/extra",
+	} {
 		if _, ok := ProtocolForPath(path); ok {
 			t.Errorf("%s should be unsupported", path)
 		}

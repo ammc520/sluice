@@ -218,6 +218,12 @@ func upstreamURL(base, requestPath, rawQuery string) (string, error) {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return "", ErrProviderConfig
 	}
+	// Defense in depth: only the exact gateway routes may be appended to a
+	// provider base URL. This blocks `..`, encoded separators, and prefix
+	// escapes even if a caller skips ProtocolForPath.
+	if _, ok := ProtocolForPath(requestPath); !ok {
+		return "", ErrProviderConfig
+	}
 	basePath := strings.TrimRight(u.Path, "/")
 	suffix := "/" + strings.TrimLeft(requestPath, "/")
 	// A base URL may already end in /v1 (common for self-hosted gateways).

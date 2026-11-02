@@ -363,4 +363,13 @@ func TestUpstreamURL(t *testing.T) {
 			t.Errorf("%s + %s = %q,%v want %q", tc.base, tc.path, got, err, tc.want)
 		}
 	}
+
+	for _, path := range []string{
+		"", "/", "/v1/messages/../admin", "/v1/messages/%2e%2e/admin",
+		"/v1/messages/", "/v1/chat/completions/../../admin",
+	} {
+		if _, err := upstreamURL("https://api.example.com", path, ""); !errors.Is(err, ErrProviderConfig) {
+			t.Errorf("%q should be rejected, got %v", path, err)
+		}
+	}
 }
