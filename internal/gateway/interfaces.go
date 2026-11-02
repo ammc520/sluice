@@ -10,6 +10,7 @@ import (
 	"github.com/company/api-key/internal/audit"
 	"github.com/company/api-key/internal/auth"
 	"github.com/company/api-key/internal/dlp"
+	"github.com/company/api-key/internal/metrics"
 	"github.com/company/api-key/internal/proxy"
 	"github.com/company/api-key/internal/quota"
 	"github.com/company/api-key/internal/store"
@@ -68,6 +69,7 @@ type HandlerDeps struct {
 	Upstream  Upstream
 	Audit     Audit
 	AlertSink AlertSink
+	Metrics   *metrics.Registry
 
 	// MaxBodyBytes limits request bodies. Zero uses 2 MiB.
 	MaxBodyBytes int64

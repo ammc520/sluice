@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/company/api-key/internal/config"
+	"github.com/company/api-key/internal/metrics"
 )
 
 func TestHealthz(t *testing.T) {
@@ -33,5 +35,17 @@ func TestReadyzOK(t *testing.T) {
 	s.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/readyz", nil))
 	if rr.Code != 200 {
 		t.Fatalf("got %d", rr.Code)
+	}
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	registry := metrics.New()
+	registry.IncRequest(200, "none")
+	s := New(&config.Config{}, Dependencies{Metrics: registry})
+
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+	if rr.Code != 200 || !strings.Contains(rr.Body.String(), "gateway_requests_total") {
+		t.Fatalf("got %d %s", rr.Code, rr.Body.String())
 	}
 }

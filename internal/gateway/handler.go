@@ -88,7 +88,15 @@ func (h *Handler) Handle(c *gin.Context) {
 		DLPAction: "none",
 		DLPHits:   nil,
 	}}
-	defer h.enqueueAudit(st, start)
+	defer func() {
+		elapsed := h.now().Sub(start)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		h.enqueueAudit(st, elapsed)
+		h.deps.Metrics.IncRequest(st.event.StatusCode, st.event.DLPAction)
+		h.deps.Metrics.ObserveLatency(float64(elapsed) / float64(time.Millisecond))
+	}()
 
 	if h.deps.Auth == nil {
 		h.misconfigured(c, st, "authenticator is not configured")
@@ -189,6 +197,9 @@ func (h *Handler) Handle(c *gin.Context) {
 	}
 	st.event.DLPAction = action
 	st.event.DLPHits = inspection.Hits
+	for _, hit := range inspection.Hits {
+		h.deps.Metrics.IncDLPHit(hit.RuleName, hit.Action)
+	}
 	h.enqueueAlerts(c.Request.Context(), principal, reqID, inspection.Hits)
 
 	forwardBody := body
@@ -401,11 +412,7 @@ func (h *Handler) misconfigured(c *gin.Context, st *requestState, detail string)
 	h.fail(c, st, http.StatusInternalServerError, "internal_error", "Internal gateway error", nil)
 }
 
-func (h *Handler) enqueueAudit(st *requestState, start time.Time) {
-	latency := h.now().Sub(start)
-	if latency < 0 {
-		latency = 0
-	}
+func (h *Handler) enqueueAudit(st *requestState, latency time.Duration) {
 	st.event.LatencyMS = int(latency.Milliseconds())
 	if st.event.StatusCode == 0 {
 		st.event.StatusCode = http.StatusInternalServerError

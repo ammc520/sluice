@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/company/api-key/internal/crypto"
+	"github.com/company/api-key/internal/metrics"
 	"github.com/company/api-key/internal/store"
 )
 
@@ -34,6 +36,7 @@ type WriterConfig struct {
 	FlushInterval time.Duration
 	SpoolDir      string
 	Logger        *slog.Logger
+	Metrics       *metrics.Registry
 
 	// retryDelays is overridable by tests; production uses the defaults.
 	retryDelays []time.Duration
@@ -108,6 +111,7 @@ func (w *Writer) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	w.observeMetrics()
 	go w.run()
 	go w.replayLoop(ctx)
 }
@@ -115,6 +119,10 @@ func (w *Writer) Start(ctx context.Context) {
 // Enqueue accepts an event without blocking. It returns false when the event
 // was spooled instead of queued, or when it could not be accepted at all.
 func (w *Writer) Enqueue(event Event) bool {
+	// Only the queue length is touched here; scanning the spool directory on
+	// the request path could block. Spool counts are refreshed by the writer
+	// and replay goroutines, and on the rare queue-full spool fallback.
+	defer w.observeQueueDepth()
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	if w.closed || w.cfg.Cipher == nil {
@@ -144,6 +152,7 @@ func (w *Writer) Enqueue(event Event) bool {
 		w.cfg.Logger.Error("audit event could not be spooled", "request_id", event.RequestID, "error", err)
 		return false
 	}
+	w.observeSpoolFiles()
 	return false
 }
 
@@ -193,6 +202,7 @@ func (w *Writer) run() {
 		}
 		w.persist(batch)
 		batch = batch[:0]
+		w.observeMetrics()
 	}
 
 	for {
@@ -203,6 +213,7 @@ func (w *Writer) run() {
 				return
 			}
 			batch = append(batch, event)
+			w.observeQueueDepth()
 			if len(batch) >= w.cfg.BatchSize {
 				flush()
 			}
@@ -251,6 +262,30 @@ func (w *Writer) persist(events []Event) {
 				"request_id", record.RequestID, "error", err)
 		}
 	}
+	w.observeSpoolFiles()
+}
+
+// observeMetrics publishes queue depth and spool file count. Both values are
+// gauges; they are recomputed rather than cached so a missed transition cannot
+// leave the metric stale.
+func (w *Writer) observeMetrics() {
+	w.observeQueueDepth()
+	w.observeSpoolFiles()
+}
+
+func (w *Writer) observeQueueDepth() {
+	w.cfg.Metrics.SetAuditQueueDepth(len(w.ch))
+}
+
+func (w *Writer) observeSpoolFiles() {
+	if w.cfg.SpoolDir == "" {
+		return
+	}
+	files, err := filepath.Glob(filepath.Join(w.cfg.SpoolDir, "audit-spool*.log"))
+	if err != nil {
+		return
+	}
+	w.cfg.Metrics.SetSpoolFiles(len(files))
 }
 
 func (w *Writer) spoolRecord(record *store.AuditRecord) error {
@@ -291,6 +326,7 @@ func (w *Writer) replayOnce(parent context.Context) {
 	if n > 0 {
 		w.cfg.Logger.Info("audit spool replayed", "records", n)
 	}
+	w.observeSpoolFiles()
 }
 
 type auditDLPHit struct {

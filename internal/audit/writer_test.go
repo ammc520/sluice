@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/company/api-key/internal/crypto"
 	"github.com/company/api-key/internal/dlp"
+	"github.com/company/api-key/internal/metrics"
 	"github.com/company/api-key/internal/store"
 )
 
@@ -345,5 +348,36 @@ func TestWriterDropsWhenSpoolIsUnavailable(t *testing.T) {
 	}
 	if w.Dropped() != 1 || w.Spooled() != 0 {
 		t.Fatalf("dropped %d spooled %d", w.Dropped(), w.Spooled())
+	}
+}
+
+func TestWriterPublishesQueueAndSpoolGauges(t *testing.T) {
+	registry := metrics.New()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "audit-spool-1.log"), []byte("sealed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w := NewWriter(WriterConfig{
+		Cipher: testCipher(t), SpoolDir: dir, QueueSize: 4, Metrics: registry,
+	})
+	// Start performs this refresh in production before any events flow.
+	w.observeMetrics()
+	if !w.Enqueue(testEvent("metrics")) {
+		t.Fatal("enqueue failed")
+	}
+
+	rr := httptest.NewRecorder()
+	registry.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+	body := rr.Body.String()
+	for _, want := range []string{"audit_queue_depth 1", "audit_spool_files 1"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q:\n%s", want, body)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := w.Close(ctx); err != nil {
+		t.Fatal(err)
 	}
 }

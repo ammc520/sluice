@@ -19,6 +19,7 @@ import (
 	"github.com/company/api-key/internal/audit"
 	"github.com/company/api-key/internal/auth"
 	"github.com/company/api-key/internal/dlp"
+	"github.com/company/api-key/internal/metrics"
 	"github.com/company/api-key/internal/proxy"
 	"github.com/company/api-key/internal/quota"
 	"github.com/company/api-key/internal/store"
@@ -191,6 +192,7 @@ type handlerFixture struct {
 	upstream *fakeUpstream
 	audit    *fakeAudit
 	alerts   *fakeAlerts
+	metrics  *metrics.Registry
 	now      time.Time
 	tokenID  uuid.UUID
 	employee store.Employee
@@ -244,6 +246,7 @@ func newHandlerFixture(t *testing.T) (*Handler, *handlerFixture) {
 		},
 		audit:    &fakeAudit{},
 		alerts:   &fakeAlerts{},
+		metrics:  metrics.New(),
 		now:      now,
 		tokenID:  tokenID,
 		employee: employee,
@@ -259,6 +262,7 @@ func newHandlerFixture(t *testing.T) (*Handler, *handlerFixture) {
 		Upstream:  f.upstream,
 		Audit:     f.audit,
 		AlertSink: f.alerts,
+		Metrics:   f.metrics,
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Clock:     func() time.Time { return f.now },
 	})
@@ -1007,5 +1011,36 @@ func TestHandlerDoesNotMutateClientHeaders(t *testing.T) {
 	}
 	if got := original.Get("Authorization"); got != "Bearer sk-company-test" {
 		t.Fatalf("handler mutated client header %q", got)
+	}
+}
+
+func TestPipelineRecordsMetricsWithoutHighCardinalityLabels(t *testing.T) {
+	_, f := newHandlerFixture(t)
+	f.dlp.result = dlp.Result{
+		Action: "block",
+		Hits: []dlp.Hit{{
+			RuleID: uuid.New(), RuleName: "云厂商 AK/SK", Action: "block",
+			AlertEnabled: true, Start: 10, End: 30,
+		}},
+	}
+	f.run(t, http.MethodPost, "/v1/chat/completions",
+		`{"model":"gpt-4o","messages":[{"role":"user","content":"AKIAIOSFODNN7EXAMPLE"}]}`, nil)
+
+	rr := httptest.NewRecorder()
+	f.metrics.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rr.Body.String()
+	for _, want := range []string{
+		`gateway_requests_total{dlp_action="block",status="403"} 1`,
+		`gateway_dlp_hits_total{action="block",rule="云厂商 AK/SK"} 1`,
+		`gateway_request_duration_ms_count 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("missing %q:\n%s", want, body)
+		}
+	}
+	for _, forbidden := range []string{"alice@example.com", "sk-company-test", "req-"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("metric output leaked %q:\n%s", forbidden, body)
+		}
 	}
 }
