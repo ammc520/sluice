@@ -1,4 +1,6 @@
 .env
+.env.production
+backups/
 bin/
 web/node_modules/
 web/dist/

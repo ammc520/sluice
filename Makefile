@@ -1,4 +1,9 @@
-.PHONY: test test-db build run dev-up dev-down fmt vet
+.PHONY: test test-db build run dev-up dev-down fmt vet web-test web-build compose-config compose-build
+
+# Production Compose reads .env.production. Fall back to the example so
+# `make compose-config` still validates the file on a fresh checkout.
+ENV_FILE ?= $(if $(wildcard .env.production),.env.production,.env.production.example)
+COMPOSE = docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 
 test:
 	go test ./...
@@ -31,7 +36,7 @@ web-build:
 	cd web && npm run build
 
 compose-config:
-	docker compose -f docker-compose.yml config >/dev/null
+	$(COMPOSE) config >/dev/null
 
 compose-build:
-	docker compose -f docker-compose.yml build
+	$(COMPOSE) build

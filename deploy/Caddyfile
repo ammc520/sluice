@@ -1,0 +1,51 @@
+{
+	# Keep the admin API on loopback. Docker uses it for the health check and
+	# it is never published outside the container.
+	admin 127.0.0.1:2019
+}
+
+{$DOMAIN} {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Hashed build assets can be cached forever; HTML must be revalidated.
+	@assets path /assets/*
+	handle @assets {
+		root * /srv
+		header Cache-Control "public, max-age=31536000, immutable"
+		encode zstd gzip
+		file_server
+	}
+
+	# Metrics and health endpoints belong to the internal network only.
+	# They must not be reachable through the public hostname.
+	@internal path /metrics /healthz /readyz
+	handle @internal {
+		respond 404
+	}
+
+	# Streaming (SSE) requires Caddy to flush each upstream chunk immediately.
+	@gateway path /v1/* /admin/api/*
+	handle @gateway {
+		reverse_proxy gateway:8080 {
+			flush_interval -1
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# The admin SPA: history-mode routes fall back to index.html. Compression
+	# stays on the static path so it never wraps an SSE response.
+	handle {
+		root * /srv
+		header Cache-Control "no-cache"
+		encode zstd gzip
+		try_files {path} /index.html
+		file_server
+	}
+}
