@@ -19,6 +19,7 @@ type Config struct {
 	MasterKeyPrevious           []byte
 	CookieSecure                bool
 	TrustedProxies              []string
+	AllowPrivateUpstreams       bool
 	RequestBodyLimit            int64
 	CaptureLimit                int
 	AuditRetentionDays          int
@@ -62,6 +63,7 @@ func Load() (*Config, error) {
 
 	cfg.CookieSecure = envBool("COOKIE_SECURE", true)
 	cfg.TrustedProxies = splitList(os.Getenv("TRUSTED_PROXIES"))
+	cfg.AllowPrivateUpstreams = envBool("ALLOW_PRIVATE_UPSTREAMS", false)
 	cfg.RequestBodyLimit = envInt64("REQUEST_BODY_LIMIT_BYTES", 2*1024*1024)
 	cfg.CaptureLimit = int(envInt64("CAPTURE_LIMIT_BYTES", 256*1024))
 	cfg.AuditRetentionDays = int(envInt64("AUDIT_RETENTION_DAYS", 180))

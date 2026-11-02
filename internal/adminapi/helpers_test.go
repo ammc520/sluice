@@ -14,6 +14,7 @@ import (
 
 	"github.com/company/api-key/internal/adminauth"
 	"github.com/company/api-key/internal/crypto"
+	"github.com/company/api-key/internal/netguard"
 	"github.com/company/api-key/internal/ratelimit"
 	"github.com/company/api-key/internal/store"
 	"github.com/company/api-key/internal/store/postgres"
@@ -85,9 +86,11 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authHandler := NewAuthHandler(env.auth, false)
 	employees := NewEmployeeHandler(pg.Employees)
 	tokens := NewTokenHandler(pg.Tokens, pg.Employees, time.Now)
-	providers := NewProviderHandler(pg.Providers, env.cipher, nil, nil)
+	providerClient := netguard.NewClient(10*time.Second, 10*time.Second, netguard.WithPrivateUpstreams())
+	providers := NewProviderHandler(pg.Providers, env.cipher, providerClient, nil)
 	modelRoutes := NewRouteHandler(pg.Routes, pg.Providers, nil)
 	dlpRules := NewDLPRuleHandler(pg.DLPRules, nil)
+	dlpTester := NewDLPTestHandler(pg.DLPRules)
 
 	r := gin.New()
 	api := r.Group("/admin/api")
@@ -121,6 +124,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.POST("/dlp-rules", adminauth.RequireRole("operator"), dlpRules.Create)
 	authed.PUT("/dlp-rules/:id", adminauth.RequireRole("operator"), dlpRules.Update)
 	authed.DELETE("/dlp-rules/:id", adminauth.RequireRole("operator"), dlpRules.Delete)
+	authed.POST("/dlp-rules/test", adminauth.RequireRole("operator"), dlpTester.Test)
 
 	env.engine = r
 	return env

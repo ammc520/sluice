@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/company/api-key/internal/crypto"
+	"github.com/company/api-key/internal/netguard"
 	"github.com/company/api-key/internal/store"
 )
 
@@ -325,7 +326,10 @@ func TestProxyDoesNotFollowRedirects(t *testing.T) {
 
 	c := testCipher(t)
 	provider := encryptedProvider(t, c, "openai_compatible", upstream.URL, "key")
-	p := New(Config{Cipher: c}) // production client
+	p := New(Config{
+		Cipher: c,
+		Client: netguard.NewClient(0, 120*time.Second, netguard.WithPrivateUpstreams()),
+	})
 	rec := httptest.NewRecorder()
 	result, err := p.Do(context.Background(), rec, Request{
 		Target: Target{Provider: provider, Protocol: "openai_compatible"},

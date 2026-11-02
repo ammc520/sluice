@@ -47,7 +47,8 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.ListenAddr != ":8080" || cfg.RequestBodyLimit != 2097152 ||
-		cfg.CaptureLimit != 262144 || cfg.AuditRetentionDays != 180 || !cfg.CookieSecure {
+		cfg.CaptureLimit != 262144 || cfg.AuditRetentionDays != 180 || !cfg.CookieSecure ||
+		cfg.AllowPrivateUpstreams {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 }

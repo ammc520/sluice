@@ -21,9 +21,16 @@ type schemeKey struct{}
 var blockedNets = mustNets(
 	"169.254.0.0/16", // link-local, includes cloud metadata endpoints
 	"fe80::/10",
-	"ff00::/8", // multicast
+	"ff00::/8",    // IPv6 multicast
+	"224.0.0.0/4", // IPv4 multicast
 	"0.0.0.0/8",
+	"192.0.0.0/24",  // IETF protocol assignments
+	"198.18.0.0/15", // benchmarking
+	"255.255.255.255/32",
 	"100.100.100.200/32", // Alibaba Cloud metadata
+	"fd00:ec2::254/128",  // AWS IPv6 metadata
+	"fd20:ce::254/128",   // Google Cloud IPv6 metadata
+	"64:ff9b::/96",       // NAT64 can embed blocked IPv4 addresses
 )
 
 var privateNets = mustNets(
@@ -48,13 +55,32 @@ func mustNets(cidrs ...string) []*net.IPNet {
 	return out
 }
 
+// Option changes the egress policy.
+type Option func(*policy)
+
+type policy struct {
+	allowPrivate bool
+}
+
+// WithPrivateUpstreams explicitly permits private, loopback, and CGNAT
+// destinations (for self-hosted models). Cloud metadata and link-local
+// addresses remain blocked. The deployment must opt in deliberately.
+func WithPrivateUpstreams() Option {
+	return func(p *policy) { p.allowPrivate = true }
+}
+
 // NewClient returns an HTTP client whose connections are validated against
-// the egress policy. timeout=0 disables the overall request timeout (used for
-// streaming); responseHeaderTimeout bounds waiting for upstream headers.
-func NewClient(timeout, responseHeaderTimeout time.Duration) *http.Client {
+// the egress policy. By default only public HTTPS destinations are allowed.
+// timeout=0 disables the overall request timeout (used for streaming);
+// responseHeaderTimeout bounds waiting for upstream headers.
+func NewClient(timeout, responseHeaderTimeout time.Duration, opts ...Option) *http.Client {
+	var p policy
+	for _, opt := range opts {
+		opt(&p)
+	}
 	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{
-		DialContext:           guardedDialContext(dialer),
+		DialContext:           guardedDialContext(dialer, p.allowPrivate),
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		MaxIdleConnsPerHost:   32,
@@ -85,7 +111,7 @@ func (t *policyTransport) CloseIdleConnections() {
 	t.base.CloseIdleConnections()
 }
 
-func guardedDialContext(dialer *net.Dialer) func(context.Context, string, string) (net.Conn, error) {
+func guardedDialContext(dialer *net.Dialer, allowPrivate bool) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
@@ -96,7 +122,7 @@ func guardedDialContext(dialer *net.Dialer) func(context.Context, string, string
 		if err != nil {
 			return nil, err
 		}
-		if err := checkDestination(scheme, ips); err != nil {
+		if err := checkDestination(scheme, ips, allowPrivate); err != nil {
 			return nil, err
 		}
 
@@ -126,7 +152,7 @@ func resolve(ctx context.Context, host string) ([]net.IP, error) {
 	return addrs, nil
 }
 
-func checkDestination(scheme string, ips []net.IP) error {
+func checkDestination(scheme string, ips []net.IP, allowPrivate bool) error {
 	switch scheme {
 	case "http", "https":
 	default:
@@ -135,6 +161,9 @@ func checkDestination(scheme string, ips []net.IP) error {
 	for _, ip := range ips {
 		if isBlocked(ip) {
 			return fmt.Errorf("%w: %s", ErrBlocked, ip)
+		}
+		if !allowPrivate && isPrivate(ip) {
+			return fmt.Errorf("%w: private destination %s requires explicit opt-in", ErrBlocked, ip)
 		}
 		if scheme == "http" && !isPrivate(ip) {
 			return fmt.Errorf("%w: cleartext HTTP to public address %s", ErrBlocked, ip)
