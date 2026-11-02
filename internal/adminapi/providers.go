@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/company/api-key/internal/crypto"
+	"github.com/company/api-key/internal/netguard"
 	"github.com/company/api-key/internal/store"
 )
 
@@ -28,12 +29,7 @@ type ProviderHandler struct {
 // mutation so the proxy resolver can reload routes and provider settings.
 func NewProviderHandler(providers store.ProviderStore, cipher *crypto.Cipher, client *http.Client, refresh func(context.Context)) *ProviderHandler {
 	if client == nil {
-		client = &http.Client{
-			Timeout: 10 * time.Second,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		}
+		client = netguard.NewClient(10*time.Second, 10*time.Second)
 	}
 	return &ProviderHandler{providers: providers, cipher: cipher, client: client, routeRefresh: refresh}
 }
@@ -204,6 +200,12 @@ func (h *ProviderHandler) Update(c *gin.Context) {
 	p, err := h.providers.Get(ctx, id)
 	if err != nil {
 		writeStoreError(c, err, "provider not found", "provider name already exists", "invalid provider")
+		return
+	}
+	// Never repoint a stored credential at a new host without the admin
+	// re-entering the key; otherwise an operator could exfiltrate it.
+	if payload.BaseURL != p.BaseURL && payload.APIKey == "" {
+		BadRequest(c, "api_key is required when changing base_url")
 		return
 	}
 	if payload.APIKey != "" {

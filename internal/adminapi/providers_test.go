@@ -37,7 +37,7 @@ func TestProviderUpdateKeepsKeyWhenBlank(t *testing.T) {
 	env := newAdminEnv(t)
 	id := env.createProvider(t, "openai", "openai_compatible")
 
-	update := `{"name":"openai-renamed","protocol":"openai_compatible","base_url":"https://api.openai.com","api_key":"","enabled":false,"timeout_seconds":60}`
+	update := `{"name":"openai-renamed","protocol":"openai_compatible","base_url":"https://example.com","api_key":"","enabled":false,"timeout_seconds":60}`
 	rr := env.do("super_admin", http.MethodPut, "/admin/api/providers/"+id, update)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", rr.Code, rr.Body.String())
@@ -55,6 +55,23 @@ func TestProviderUpdateKeepsKeyWhenBlank(t *testing.T) {
 	plain, err := env.cipher.Open(raw.APIKeyEnc, providerAAD(raw.ID))
 	if err != nil || string(plain) != "sk-real-secret" {
 		t.Fatalf("stored key %q err=%v", plain, err)
+	}
+}
+
+func TestProviderBaseURLChangeRequiresNewKey(t *testing.T) {
+	env := newAdminEnv(t)
+	id := env.createProvider(t, "openai", "openai_compatible")
+
+	body := `{"name":"openai","protocol":"openai_compatible","base_url":"https://attacker.example.com","api_key":""}`
+	rr := env.do("super_admin", http.MethodPut, "/admin/api/providers/"+id, body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("got %d %s", rr.Code, rr.Body.String())
+	}
+
+	body = `{"name":"openai","protocol":"openai_compatible","base_url":"https://attacker.example.com","api_key":"new-secret"}`
+	rr = env.do("super_admin", http.MethodPut, "/admin/api/providers/"+id, body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("re-entered key: %d %s", rr.Code, rr.Body.String())
 	}
 }
 
