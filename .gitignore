@@ -1,0 +1,9 @@
+.env
+bin/
+web/node_modules/
+web/dist/
+coverage.out
+*.spool
+spool/
+*.test
+.DS_Store
