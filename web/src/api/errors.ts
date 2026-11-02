@@ -12,6 +12,23 @@ const translatedMessages: Record<string, string> = {
   'administrator not found': '管理员不存在',
   'invalid username or password': '用户名或密码错误',
   'too many login attempts': '登录尝试次数过多，请稍后再试',
+  'provider name already exists': '上游服务名称已存在',
+  'provider is still referenced by model routes':
+    '该上游服务仍被模型路由引用，请先删除相关路由',
+  'api_key is required when changing base_url':
+    '修改 Base URL 时必须重新填写 API Key',
+  'route protocol must match provider protocol':
+    '路由协议必须与上游服务协议一致',
+  'provider not found': '上游服务不存在',
+  'route not found': '模型路由不存在',
+  'a rule with this name already exists': '规则名称已存在',
+  'rule not found': 'DLP 规则不存在',
+  'builtin rules can be disabled but not deleted':
+    '内置规则只能禁用，不能删除',
+  'builtin rules only allow changing description, action, replacement, priority, and flags':
+    '内置规则仅允许调整说明、动作、替换文本、优先级与启用/告警开关',
+  'text has too many matches': '测试文本命中的敏感内容过多，请缩短后重试',
+  'text is too long': '测试文本过长',
 }
 
 /** Converts API failures into concise Chinese messages for the admin UI. */

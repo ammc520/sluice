@@ -83,3 +83,106 @@ export interface TokenCreateResult {
   token: string
   token_id: string
 }
+
+export type Protocol = 'openai_compatible' | 'anthropic'
+
+export interface Provider {
+  id: string
+  name: string
+  protocol: Protocol
+  base_url: string
+  api_key_last4: string
+  is_default: boolean
+  enabled: boolean
+  timeout_seconds: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ProviderPayload {
+  name: string
+  protocol: Protocol
+  base_url: string
+  api_key: string
+  is_default: boolean
+  enabled: boolean
+  timeout_seconds: number
+}
+
+export interface ProviderTestResult {
+  reachable: boolean
+  status_code?: number
+  message?: string
+}
+
+export type RouteMatchType = 'exact' | 'prefix' | 'glob'
+
+export interface ModelRoute {
+  id: string
+  provider_id: string
+  protocol: Protocol
+  pattern: string
+  match_type: RouteMatchType
+  upstream_model: string | null
+  priority: number
+  enabled: boolean
+  created_at: string
+}
+
+export interface ModelRoutePayload {
+  provider_id: string
+  protocol: Protocol
+  pattern: string
+  match_type: RouteMatchType
+  upstream_model: string
+  priority: number
+  enabled: boolean
+}
+
+export type DLPMatchType = 'regex' | 'keyword'
+export type DLPAction = 'block' | 'mask' | 'audit'
+
+export interface DLPRule {
+  id: string
+  name: string
+  description: string
+  category: string
+  match_type: DLPMatchType
+  pattern: string
+  action: DLPAction
+  replacement: string
+  priority: number
+  enabled: boolean
+  builtin: boolean
+  alert_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface DLPRulePayload {
+  name: string
+  description: string
+  category: string
+  match_type: DLPMatchType
+  pattern: string
+  action: DLPAction
+  replacement: string
+  priority: number
+  enabled: boolean
+  alert_enabled: boolean
+}
+
+export interface DLPHit {
+  rule_id: string
+  rule_name: string
+  action: DLPAction
+  alert_enabled: boolean
+  start: number
+  end: number
+}
+
+export interface DLPTestResult {
+  action: DLPAction | 'none'
+  hits: DLPHit[]
+  masked_text: string
+}
