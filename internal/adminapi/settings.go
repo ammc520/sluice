@@ -225,6 +225,14 @@ func (h *SettingsHandler) PutSMTP(c *gin.Context) {
 		UseTLS:   payload.UseTLS,
 	}
 	passwordChanged := payload.Password != ""
+	// A retained credential is only valid for the SMTP endpoint and identity
+	// it was entered for. Requiring re-entry on either change prevents a
+	// settings edit from redirecting the stored secret to another server.
+	if !passwordChanged && existing.PasswordEnc != "" && payload.Username != "" &&
+		(payload.Host != existing.Host || payload.Username != existing.Username) {
+		BadRequest(c, "password must be re-entered when SMTP host or username changes")
+		return
+	}
 	if cfg.Password == "" && cfg.Username != "" && existing.PasswordEnc != "" {
 		// Validation only needs a non-empty placeholder to confirm that the
 		// retained password is paired with a username and TLS.

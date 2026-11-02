@@ -86,6 +86,14 @@ func (f *fakeAdminStore) DeleteSession(_ context.Context, hash string) error {
 	delete(f.sessions, hash)
 	return nil
 }
+func (f *fakeAdminStore) DeleteSessionsByAdminID(_ context.Context, adminID uuid.UUID) error {
+	for hash, sess := range f.sessions {
+		if sess.AdminID == adminID {
+			delete(f.sessions, hash)
+		}
+	}
+	return nil
+}
 func (f *fakeAdminStore) DeleteExpiredSessions(context.Context, time.Time) error { return nil }
 func (f *fakeAdminStore) InsertAdminAudit(_ context.Context, a *store.AdminAuditLog) error {
 	f.audits = append(f.audits, a)

@@ -2,13 +2,46 @@ package adminapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/company/api-key/internal/adminauth"
+	"github.com/company/api-key/internal/store"
 )
+
+func loginAs(t *testing.T, env *adminEnv, username, password string) adminSession {
+	t.Helper()
+	body := fmt.Sprintf(`{"username":%q,"password":%q}`, username, password)
+	rr := env.doRaw(http.MethodPost, "/admin/api/auth/login", body, nil, false)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("login %s got %d: %s", username, rr.Code, rr.Body.String())
+	}
+	var session adminSession
+	for _, cookie := range rr.Result().Cookies() {
+		switch cookie.Name {
+		case adminauth.SessionCookie:
+			session.session = cookie
+		case adminauth.CSRFCookie:
+			session.csrf = cookie
+		}
+	}
+	if session.session == nil || session.csrf == nil {
+		t.Fatalf("login %s: missing cookies", username)
+	}
+	return session
+}
+
+func sessionStatus(env *adminEnv, session adminSession) int {
+	return env.doRaw(http.MethodGet, "/admin/api/auth/me", "", []*http.Cookie{
+		session.session, session.csrf,
+	}, false).Code
+}
 
 func createAdminUser(t *testing.T, env *adminEnv, body string) adminUserDTO {
 	t.Helper()
@@ -183,10 +216,17 @@ func TestAdminUserResetPassword(t *testing.T) {
 	if code := rawLogin(env, "bob", "strong-password-123"); code != http.StatusOK {
 		t.Fatalf("initial login got %d", code)
 	}
+	existingSession := loginAs(t, env, "bob", "strong-password-123")
+	if code := sessionStatus(env, existingSession); code != http.StatusOK {
+		t.Fatalf("initial session got %d", code)
+	}
 	rr := env.do("super_admin", http.MethodPost,
 		"/admin/api/admin-users/"+bob.ID+"/reset-password", `{"password":"new-strong-pass-456"}`)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("reset got %d: %s", rr.Code, rr.Body.String())
+	}
+	if code := sessionStatus(env, existingSession); code != http.StatusUnauthorized {
+		t.Fatalf("pre-reset session still valid: %d", code)
 	}
 	if strings.Contains(rr.Body.String(), "new-strong-pass-456") {
 		t.Fatalf("reset response leaked password: %s", rr.Body.String())
@@ -210,5 +250,67 @@ func TestAdminUserResetPassword(t *testing.T) {
 		"/admin/api/admin-users/"+uuid.NewString()+"/reset-password", `{"password":"new-strong-pass-789"}`)
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("missing reset got %d: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestLastSuperAdminGuardIsAtomic(t *testing.T) {
+	env := newAdminEnv(t)
+	root2 := createAdminUser(t, env,
+		`{"username":"root2","password":"strong-password-456","role":"super_admin"}`)
+
+	users := listAdminUsers(t, env)
+	var adminID uuid.UUID
+	for _, user := range users {
+		if user.Username == "admin" {
+			adminID = uuid.MustParse(user.ID)
+		}
+	}
+	if adminID == uuid.Nil {
+		t.Fatal("seeded super admin not found")
+	}
+	first, err := env.store.Admins.Get(context.Background(), adminID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := env.store.Admins.Get(context.Background(), uuid.MustParse(root2.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Status = 0
+	second.Status = 0
+
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, user := range []*store.AdminUser{first, second} {
+		wg.Add(1)
+		go func(u *store.AdminUser) {
+			defer wg.Done()
+			errs <- env.store.Admins.Update(context.Background(), u)
+		}(user)
+	}
+	wg.Wait()
+	close(errs)
+
+	var succeeded, guarded int
+	for err := range errs {
+		switch {
+		case err == nil:
+			succeeded++
+		case errors.Is(err, store.ErrLastSuperAdmin):
+			guarded++
+		default:
+			t.Fatalf("unexpected update error: %v", err)
+		}
+	}
+	if succeeded != 1 || guarded != 1 {
+		t.Fatalf("succeeded=%d guarded=%d", succeeded, guarded)
+	}
+	var active int
+	if err := env.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM admin_users WHERE role='super_admin' AND status=1`).Scan(&active); err != nil {
+		t.Fatal(err)
+	}
+	if active != 1 {
+		t.Fatalf("active super admins %d", active)
 	}
 }

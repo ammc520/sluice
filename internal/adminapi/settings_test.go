@@ -99,7 +99,7 @@ func TestSMTPPasswordNeverReturnedAndRetained(t *testing.T) {
 		t.Fatalf("decrypted %q err=%v", plain, err)
 	}
 
-	second := `{"host":"smtp2.example.com","port":465,"username":"u",` +
+	second := `{"host":"smtp.example.com","port":465,"username":"u",` +
 		`"password":"","from":"gateway@example.com","to":["ops@example.com"],"use_tls":true}`
 	rr = env.do("super_admin", http.MethodPut, "/admin/api/settings/smtp", second)
 	if rr.Code != http.StatusOK {
@@ -118,8 +118,47 @@ func TestSMTPPasswordNeverReturnedAndRetained(t *testing.T) {
 	}
 	var retainedDTO smtpSettingsDTO
 	decodeData(t, rr, &retainedDTO)
-	if !retainedDTO.PasswordSet || retainedDTO.Host != "smtp2.example.com" || retainedDTO.Port != 465 {
+	if !retainedDTO.PasswordSet || retainedDTO.Host != "smtp.example.com" || retainedDTO.Port != 465 {
 		t.Fatalf("retained dto %+v", retainedDTO)
+	}
+
+	for _, body := range []string{
+		`{"host":"smtp2.example.com","port":465,"username":"u",` +
+			`"password":"","from":"gateway@example.com","to":["ops@example.com"],"use_tls":true}`,
+		`{"host":"smtp.example.com","port":465,"username":"other",` +
+			`"password":"","from":"gateway@example.com","to":["ops@example.com"],"use_tls":true}`,
+	} {
+		rr = env.do("super_admin", http.MethodPut, "/admin/api/settings/smtp", body)
+		if rr.Code != http.StatusBadRequest {
+			t.Fatalf("retained password across identity change got %d: %s", rr.Code, rr.Body.String())
+		}
+	}
+
+	moved := `{"host":"smtp2.example.com","port":465,"username":"u",` +
+		`"password":"new-smtp-secret","from":"gateway@example.com",` +
+		`"to":["ops@example.com"],"use_tls":true}`
+	rr = env.do("super_admin", http.MethodPut, "/admin/api/settings/smtp", moved)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("moved put got %d: %s", rr.Code, rr.Body.String())
+	}
+	raw, _ = env.store.Settings.Get(context.Background(), "smtp")
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+	var movedEnc string
+	if err := json.Unmarshal(stored["password_enc"], &movedEnc); err != nil {
+		t.Fatal(err)
+	}
+	if movedEnc == passwordEnc {
+		t.Fatal("host change did not replace the sealed credential")
+	}
+	sealed, err = base64.StdEncoding.DecodeString(movedEnc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err = env.cipher.Open(sealed, smtpPasswordAAD)
+	if err != nil || string(plain) != "new-smtp-secret" {
+		t.Fatalf("decrypted moved password %q err=%v", plain, err)
 	}
 
 	cleared := `{"host":"smtp2.example.com","port":25,"username":"","password":"",` +

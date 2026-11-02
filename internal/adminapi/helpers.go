@@ -66,6 +66,8 @@ func writeStoreError(c *gin.Context, err error, notFoundMsg, conflictMsg, invali
 		Fail(c, http.StatusConflict, "conflict", conflictMsg)
 	case errors.Is(err, store.ErrInvalidReference):
 		BadRequest(c, invalidRefMsg)
+	case errors.Is(err, store.ErrLastSuperAdmin):
+		Fail(c, http.StatusConflict, "last_super_admin", "cannot remove the last active super administrator")
 	default:
 		InternalError(c)
 	}

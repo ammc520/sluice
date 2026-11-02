@@ -40,7 +40,40 @@ func (s *AdminStore) Create(ctx context.Context, u *store.AdminUser) error {
 }
 
 func (s *AdminStore) Update(ctx context.Context, u *store.AdminUser) error {
-	tag, err := s.pool.Exec(ctx, `
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize administrator edits so two concurrent requests cannot each
+	// observe another active super administrator and both remove one.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(68421001)`); err != nil {
+		return err
+	}
+
+	var oldRole string
+	var oldStatus int16
+	if err := tx.QueryRow(ctx,
+		`SELECT role, status FROM admin_users WHERE id=$1 FOR UPDATE`, u.ID,
+	).Scan(&oldRole, &oldStatus); err != nil {
+		return mapError(err)
+	}
+
+	if oldRole == "super_admin" && oldStatus == 1 &&
+		(u.Role != "super_admin" || u.Status != 1) {
+		var active int
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM admin_users WHERE role='super_admin' AND status=1`,
+		).Scan(&active); err != nil {
+			return err
+		}
+		if active <= 1 {
+			return store.ErrLastSuperAdmin
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE admin_users SET username=$2, password_hash=$3, role=$4, status=$5,
 			last_login_at=$6 WHERE id=$1`,
 		u.ID, u.Username, u.PasswordHash, u.Role, u.Status, u.LastLoginAt)
@@ -50,7 +83,7 @@ func (s *AdminStore) Update(ctx context.Context, u *store.AdminUser) error {
 	if tag.RowsAffected() == 0 {
 		return store.ErrNotFound
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 func (s *AdminStore) List(ctx context.Context) ([]store.AdminUser, error) {
@@ -103,6 +136,11 @@ func (s *AdminStore) TouchSession(ctx context.Context, id uuid.UUID, at time.Tim
 
 func (s *AdminStore) DeleteSession(ctx context.Context, hash string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM admin_sessions WHERE token_hash=$1`, hash)
+	return err
+}
+
+func (s *AdminStore) DeleteSessionsByAdminID(ctx context.Context, adminID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM admin_sessions WHERE admin_id=$1`, adminID)
 	return err
 }
 

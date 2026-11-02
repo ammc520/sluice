@@ -1,7 +1,6 @@
 package adminapi
 
 import (
-	"context"
 	"net/http"
 	"regexp"
 	"strings"
@@ -184,7 +183,7 @@ func (h *AdminUsersHandler) Update(c *gin.Context) {
 		writeStoreError(c, err, "administrator not found", "username already exists", "invalid administrator reference")
 		return
 	}
-	wasActiveSuperAdmin := user.Role == "super_admin" && user.Status == 1
+	wasEnabled := user.Status == 1
 	if payload.Username != "" {
 		if msg := validateAdminUsername(payload.Username); msg != "" {
 			BadRequest(c, msg)
@@ -207,15 +206,11 @@ func (h *AdminUsersHandler) Update(c *gin.Context) {
 		user.Status = *payload.Status
 	}
 
-	// Only guard transitions that remove an active super administrator.
-	if wasActiveSuperAdmin && (user.Role != "super_admin" || user.Status != 1) {
-		count, err := h.activeSuperAdmins(ctx)
-		if err != nil {
+	// Disabling an account must invalidate its existing sessions before the
+	// status change so a later re-enable cannot revive stale credentials.
+	if wasEnabled && user.Status == 0 {
+		if err := h.admins.DeleteSessionsByAdminID(ctx, user.ID); err != nil {
 			InternalError(c)
-			return
-		}
-		if count <= 1 {
-			Fail(c, http.StatusConflict, "last_super_admin", "cannot remove the last active super administrator")
 			return
 		}
 	}
@@ -264,6 +259,12 @@ func (h *AdminUsersHandler) ResetPassword(c *gin.Context) {
 		InternalError(c)
 		return
 	}
+	// Revoke every existing session before rotating the credential. Doing
+	// this first means a failed password write still fails closed.
+	if err := h.admins.DeleteSessionsByAdminID(ctx, user.ID); err != nil {
+		InternalError(c)
+		return
+	}
 	user.PasswordHash = hash
 	if err := h.admins.Update(ctx, user); err != nil {
 		writeStoreError(c, err, "administrator not found", "username already exists", "invalid administrator reference")
@@ -276,18 +277,4 @@ func (h *AdminUsersHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 	OK(c, http.StatusOK, gin.H{"reset": true})
-}
-
-func (h *AdminUsersHandler) activeSuperAdmins(ctx context.Context) (int, error) {
-	users, err := h.admins.List(ctx)
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for i := range users {
-		if users[i].Role == "super_admin" && users[i].Status == 1 {
-			count++
-		}
-	}
-	return count, nil
 }

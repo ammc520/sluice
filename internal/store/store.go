@@ -18,6 +18,9 @@ var (
 	ErrConflict = errors.New("store: conflict")
 	// ErrInvalidReference is returned when a foreign key target does not exist.
 	ErrInvalidReference = errors.New("store: invalid reference")
+	// ErrLastSuperAdmin is returned when a change would leave no active
+	// super administrator.
+	ErrLastSuperAdmin = errors.New("store: last super admin")
 )
 
 // TokenFilter filters token listings.
@@ -118,6 +121,7 @@ type AdminStore interface {
 	FindSessionByHash(ctx context.Context, hash string) (*AdminSession, error)
 	TouchSession(ctx context.Context, id uuid.UUID, at time.Time) error
 	DeleteSession(ctx context.Context, hash string) error
+	DeleteSessionsByAdminID(ctx context.Context, adminID uuid.UUID) error
 	DeleteExpiredSessions(ctx context.Context, before time.Time) error
 	InsertAdminAudit(ctx context.Context, a *AdminAuditLog) error
 }
