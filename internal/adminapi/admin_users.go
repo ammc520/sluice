@@ -206,18 +206,19 @@ func (h *AdminUsersHandler) Update(c *gin.Context) {
 		user.Status = *payload.Status
 	}
 
-	// Disabling an account must invalidate its existing sessions before the
-	// status change so a later re-enable cannot revive stale credentials.
+	if err := h.admins.Update(ctx, user); err != nil {
+		writeStoreError(c, err, "administrator not found", "username already exists", "invalid administrator reference")
+		return
+	}
+	// Disabling an account must invalidate its existing sessions so a later
+	// re-enable cannot revive stale credentials. Do this only after the store
+	// accepts the update: a rejected edit (for example, removing the last
+	// super administrator) must not log the caller out.
 	if wasEnabled && user.Status == 0 {
 		if err := h.admins.DeleteSessionsByAdminID(ctx, user.ID); err != nil {
 			InternalError(c)
 			return
 		}
-	}
-
-	if err := h.admins.Update(ctx, user); err != nil {
-		writeStoreError(c, err, "administrator not found", "username already exists", "invalid administrator reference")
-		return
 	}
 	if err := recordAdminAudit(c, h.admins, h.trustedProxies, "update_admin_user", "admin_user", user.ID.String(), map[string]any{
 		"username": user.Username,

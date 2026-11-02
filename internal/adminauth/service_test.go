@@ -231,3 +231,33 @@ func TestRoleMiddleware(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureBootstrapAdminCreatesOnlyWhenEmpty(t *testing.T) {
+	ctx := context.Background()
+	admins := newFakeAdminStore()
+
+	created, err := EnsureBootstrapAdmin(ctx, admins, "admin", "short")
+	if err == nil || created {
+		t.Fatalf("short password should fail, created=%v err=%v", created, err)
+	}
+
+	created, err = EnsureBootstrapAdmin(ctx, admins, "root", "correct-horse-battery")
+	if err != nil || !created {
+		t.Fatalf("bootstrap failed: created=%v err=%v", created, err)
+	}
+	user, err := admins.FindByUsername(ctx, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Role != "super_admin" || user.Status != 1 || user.PasswordHash == "" {
+		t.Fatalf("unexpected bootstrap admin %+v", user)
+	}
+	if !crypto.VerifyPassword(user.PasswordHash, "correct-horse-battery") {
+		t.Fatal("password hash does not verify")
+	}
+
+	created, err = EnsureBootstrapAdmin(ctx, admins, "other", "another-long-password")
+	if err != nil || created {
+		t.Fatalf("existing admins must be left untouched: created=%v err=%v", created, err)
+	}
+}

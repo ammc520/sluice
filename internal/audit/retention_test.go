@@ -41,6 +41,30 @@ func TestRetentionDeletesOnlyExpired(t *testing.T) {
 	}
 }
 
+func TestRetentionFuncReadsWindowOnEveryRun(t *testing.T) {
+	now := time.Date(2026, 11, 2, 3, 0, 0, 0, shanghaiLocation())
+	days := 30
+	sink := &retentionFake{}
+	r := NewRetentionFunc(sink, func(context.Context) int { return days }, func() time.Time { return now })
+
+	if _, err := r.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 10, 3, 3, 0, 0, 0, shanghaiLocation())
+	if !sink.deletedBefore.Equal(want) {
+		t.Fatalf("cutoff %v want %v", sink.deletedBefore, want)
+	}
+
+	days = 90
+	if _, err := r.RunOnce(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	want = time.Date(2026, 8, 4, 3, 0, 0, 0, shanghaiLocation())
+	if !sink.deletedBefore.Equal(want) {
+		t.Fatalf("updated cutoff %v want %v", sink.deletedBefore, want)
+	}
+}
+
 func TestRetentionRejectsInvalidConfiguration(t *testing.T) {
 	r := NewRetention(&retentionFake{}, 0, nil)
 	if _, err := r.RunOnce(context.Background()); err == nil {

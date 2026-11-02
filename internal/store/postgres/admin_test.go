@@ -34,6 +34,13 @@ func TestAdminUsersCRUD(t *testing.T) {
 		t.Fatalf("missing user got %v", err)
 	}
 
+	// The store refuses to demote the last active super administrator, so
+	// create a second one before exercising the update path.
+	other := &store.AdminUser{Username: "root2", PasswordHash: "hash", Role: "super_admin", Status: 1}
+	if err := s.Admins.Create(ctx, other); err != nil {
+		t.Fatalf("create second super admin: %v", err)
+	}
+
 	u.Role = "auditor"
 	u.Status = 2
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -47,12 +54,29 @@ func TestAdminUsersCRUD(t *testing.T) {
 	}
 
 	list, err := s.Admins.List(ctx)
-	if err != nil || len(list) != 1 {
+	if err != nil || len(list) != 2 {
 		t.Fatalf("list=%v err=%v", list, err)
 	}
 
 	if err := s.Admins.Update(ctx, &store.AdminUser{ID: uuid.New(), Username: "ghost"}); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("update missing got %v", err)
+	}
+}
+
+func TestAdminStoreRejectsDemotingLastSuperAdmin(t *testing.T) {
+	s := newTestStore(t)
+	root := &store.AdminUser{Username: "root", PasswordHash: "hash", Role: "super_admin", Status: 1}
+	if err := s.Admins.Create(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	root.Role = "auditor"
+	if err := s.Admins.Update(ctx, root); !errors.Is(err, store.ErrLastSuperAdmin) {
+		t.Fatalf("demote last super admin got %v", err)
+	}
+	root.Role = "super_admin"
+	root.Status = 0
+	if err := s.Admins.Update(ctx, root); !errors.Is(err, store.ErrLastSuperAdmin) {
+		t.Fatalf("disable last super admin got %v", err)
 	}
 }
 

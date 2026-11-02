@@ -21,6 +21,11 @@ type Dependencies struct {
 	Ready   func(context.Context) error
 	Logger  *slog.Logger
 	Metrics *metrics.Registry
+	// Gateway handles every /v1/* request. Nil leaves the route unmounted.
+	Gateway gin.HandlerFunc
+	// RegisterAdmin mounts the admin API under /admin/api. Nil leaves the
+	// admin surface unmounted.
+	RegisterAdmin func(*gin.RouterGroup)
 }
 
 // Server wraps the Gin engine and the underlying HTTP server.
@@ -41,6 +46,9 @@ func New(cfg *config.Config, deps Dependencies) *Server {
 	}
 	engine := gin.New()
 	engine.Use(gin.Recovery())
+	// Only proxies explicitly listed in TRUSTED_PROXIES may influence the
+	// client IP. A nil list trusts the direct peer only.
+	_ = engine.SetTrustedProxies(cfg.TrustedProxies)
 
 	s := &Server{cfg: cfg, deps: deps, engine: engine}
 	s.routes()
@@ -54,6 +62,13 @@ func New(cfg *config.Config, deps Dependencies) *Server {
 }
 
 func (s *Server) routes() {
+	if s.deps.Gateway != nil {
+		s.engine.Any("/v1/*path", s.deps.Gateway)
+	}
+	if s.deps.RegisterAdmin != nil {
+		s.deps.RegisterAdmin(s.engine.Group("/admin/api"))
+	}
+
 	s.engine.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})

@@ -15,22 +15,32 @@ type AuditRetentionStore interface {
 // Retention deletes expired audit records once at startup and then daily at
 // 03:00 Asia/Shanghai.
 type Retention struct {
-	store         AuditRetentionStore
-	retentionDays int
-	clock         func() time.Time
-	logger        *slog.Logger
+	store  AuditRetentionStore
+	days   func(context.Context) int
+	clock  func() time.Time
+	logger *slog.Logger
 }
 
 // NewRetention creates the audit retention job. clock may be nil.
 func NewRetention(store AuditRetentionStore, retentionDays int, clock func() time.Time) *Retention {
+	return NewRetentionFunc(store, func(context.Context) int { return retentionDays }, clock)
+}
+
+// NewRetentionFunc creates a retention job whose window can change between
+// runs, for example when an administrator edits the audit settings. days is
+// evaluated once per run and must return a positive value.
+func NewRetentionFunc(store AuditRetentionStore, days func(context.Context) int, clock func() time.Time) *Retention {
 	if clock == nil {
 		clock = time.Now
 	}
+	if days == nil {
+		days = func(context.Context) int { return 0 }
+	}
 	return &Retention{
-		store:         store,
-		retentionDays: retentionDays,
-		clock:         clock,
-		logger:        slog.Default(),
+		store:  store,
+		days:   days,
+		clock:  clock,
+		logger: slog.Default(),
 	}
 }
 
@@ -47,11 +57,15 @@ func (r *Retention) RunOnce(ctx context.Context) (int64, error) {
 	if r.store == nil {
 		return 0, errors.New("audit retention: store is required")
 	}
-	if r.retentionDays <= 0 {
+	days := 0
+	if r.days != nil {
+		days = r.days(ctx)
+	}
+	if days <= 0 {
 		return 0, errors.New("audit retention: retention days must be positive")
 	}
 	now := r.clock().In(shanghaiLocation())
-	cutoff := now.AddDate(0, 0, -r.retentionDays)
+	cutoff := now.AddDate(0, 0, -days)
 	return r.store.DeleteBefore(ctx, cutoff)
 }
 
