@@ -23,6 +23,7 @@ var (
 	ErrSessionNotFound    = errors.New("adminauth: session not found")
 	ErrSessionExpired     = errors.New("adminauth: session expired")
 	ErrAccountDisabled    = errors.New("adminauth: account disabled")
+	ErrAuthUnavailable    = errors.New("adminauth: rate limiter unavailable")
 )
 
 // Service manages administrator login and server-side sessions.
@@ -64,7 +65,12 @@ func dummyPasswordHash() string {
 func (s *Service) Login(ctx context.Context, username, password, ip string) (string, string, *store.AdminUser, error) {
 	if s.limiter != nil {
 		allowed, _, err := s.limiter.Allow(ctx, "admin-login:"+ip, 5)
-		if err == nil && !allowed {
+		if err != nil {
+			// Login is security-sensitive: never turn a limiter failure
+			// into unlimited password attempts.
+			return "", "", nil, ErrAuthUnavailable
+		}
+		if !allowed {
 			return "", "", nil, ErrRateLimited
 		}
 	}

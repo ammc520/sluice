@@ -145,6 +145,9 @@ func periodStart(period string, now time.Time) time.Time {
 }
 
 func (s *TokenStore) ReserveQuota(ctx context.Context, id uuid.UUID, reserve int64, now time.Time) (store.Reservation, error) {
+	if reserve < 0 {
+		return store.Reservation{}, store.ErrQuotaExceeded
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return store.Reservation{}, err
@@ -172,10 +175,9 @@ func (s *TokenStore) ReserveQuota(ctx context.Context, id uuid.UUID, reserve int
 	}
 
 	if total != nil {
-		if reserve == 0 && used >= *total {
-			return store.Reservation{}, store.ErrQuotaExceeded
-		}
-		if reserve > 0 && used+reserve > *total {
+		// Use subtraction instead of used+reserve so a huge reserve cannot
+		// overflow int64 and slip past the quota check.
+		if used >= *total || reserve > *total-used {
 			return store.Reservation{}, store.ErrQuotaExceeded
 		}
 	}
@@ -191,6 +193,9 @@ func (s *TokenStore) ReserveQuota(ctx context.Context, id uuid.UUID, reserve int
 }
 
 func (s *TokenStore) SettleQuota(ctx context.Context, r store.Reservation, actual int64) error {
+	if actual < 0 {
+		actual = 0
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -198,10 +203,11 @@ func (s *TokenStore) SettleQuota(ctx context.Context, r store.Reservation, actua
 	defer tx.Rollback(ctx)
 
 	var used int64
+	var total *int64
 	var start *time.Time
 	if err := tx.QueryRow(ctx, `
-		SELECT quota_used, period_start FROM tokens WHERE id=$1 FOR UPDATE`, r.TokenID).
-		Scan(&used, &start); err != nil {
+		SELECT quota_used, quota_total, period_start FROM tokens WHERE id=$1 FOR UPDATE`, r.TokenID).
+		Scan(&used, &total, &start); err != nil {
 		return mapError(err)
 	}
 	if start != nil && !start.Equal(r.PeriodStart) {
@@ -211,6 +217,11 @@ func (s *TokenStore) SettleQuota(ctx context.Context, r store.Reservation, actua
 	newUsed := used - r.Reserved + actual
 	if newUsed < 0 {
 		newUsed = 0
+	}
+	// Actual upstream usage can exceed the hold. Cap the counter at the
+	// quota so later reservations cannot use an over-counted balance.
+	if total != nil && newUsed > *total {
+		newUsed = *total
 	}
 	if _, err := tx.Exec(ctx, `UPDATE tokens SET quota_used=$2 WHERE id=$1`, r.TokenID, newUsed); err != nil {
 		return err

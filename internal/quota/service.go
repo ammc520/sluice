@@ -18,6 +18,11 @@ const (
 	EndpointMetadata   Endpoint = "metadata"
 )
 
+// MaxReservePerRequest caps the per-request token hold. A client-supplied
+// max_tokens above this value is clamped so it cannot overflow the quota
+// arithmetic or hold an absurd amount of quota.
+const MaxReservePerRequest int64 = 1_000_000
+
 // Service applies quota rules on top of the token store.
 type Service struct {
 	tokens         store.TokenStore
@@ -30,6 +35,9 @@ type Service struct {
 func New(tokens store.TokenStore, defaultReserve int64, clock func() time.Time) *Service {
 	if defaultReserve <= 0 {
 		defaultReserve = 4096
+	}
+	if defaultReserve > MaxReservePerRequest {
+		defaultReserve = MaxReservePerRequest
 	}
 	if clock == nil {
 		clock = time.Now
@@ -46,12 +54,18 @@ func (s *Service) Reserve(ctx context.Context, t *store.Token, endpoint Endpoint
 	var reserve int64
 	switch endpoint {
 	case EndpointEmbedding:
-		reserve = 0
+		// Embeddings report input tokens, which can arrive in parallel.
+		// Holding zero would let every concurrent call pass the remaining
+		// check at once (TOCTOU), so use the default hold and settle it.
+		reserve = s.defaultReserve
 	default:
 		if t.QuotaType == "requests" {
 			reserve = 1
 		} else if maxTokens > 0 {
 			reserve = maxTokens
+			if reserve > MaxReservePerRequest {
+				reserve = MaxReservePerRequest
+			}
 		} else {
 			reserve = s.defaultReserve
 		}

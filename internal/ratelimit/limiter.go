@@ -13,6 +13,11 @@ type Limiter interface {
 
 // Fallback uses a secondary limiter when the primary fails (for example when
 // Redis is unavailable). A Redis outage must not take the gateway down.
+//
+// This is deliberately fail-open for API traffic: the in-process limiter still
+// enforces the configured limit per instance, and DegradedCount is exposed for
+// alerting. Security-sensitive callers (admin login) must treat a limiter
+// error as a failure instead.
 type Fallback struct {
 	primary  Limiter
 	fallback Limiter

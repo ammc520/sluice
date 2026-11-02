@@ -174,6 +174,20 @@ func TestLoginRateLimited(t *testing.T) {
 	}
 }
 
+type failingLimiter struct{}
+
+func (failingLimiter) Allow(context.Context, string, int) (bool, time.Duration, error) {
+	return false, 0, errors.New("limiter down")
+}
+
+func TestLoginFailsClosedWhenLimiterFails(t *testing.T) {
+	svc, _ := newAuthFixture(t)
+	svc.limiter = failingLimiter{}
+	if _, _, _, err := svc.Login(context.Background(), "admin", "correct-password", "9.9.9.9"); !errors.Is(err, ErrAuthUnavailable) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestRoleMiddleware(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

@@ -55,6 +55,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			Fail(c, http.StatusTooManyRequests, "rate_limited", "too many login attempts")
 		case errors.Is(err, adminauth.ErrInvalidCredentials), errors.Is(err, adminauth.ErrAccountDisabled):
 			Fail(c, http.StatusUnauthorized, "invalid_credentials", "invalid username or password")
+		case errors.Is(err, adminauth.ErrAuthUnavailable):
+			Fail(c, http.StatusServiceUnavailable, "auth_unavailable", "authentication temporarily unavailable")
 		default:
 			InternalError(c)
 		}

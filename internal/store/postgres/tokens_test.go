@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -114,6 +115,31 @@ func TestReserveQuotaConcurrentOnlyOneSucceeds(t *testing.T) {
 	}
 	if ok != 1 || exceeded != 1 {
 		t.Fatalf("ok=%d exceeded=%d", ok, exceeded)
+	}
+}
+
+func TestReserveQuotaHugeReserveCannotOverflow(t *testing.T) {
+	s, tok := seedToken(t, 100, 0)
+	if _, err := s.Tokens.ReserveQuota(ctx, tok.ID, math.MaxInt64, time.Now()); !errors.Is(err, store.ErrQuotaExceeded) {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := s.Tokens.ReserveQuota(ctx, tok.ID, -1, time.Now()); !errors.Is(err, store.ErrQuotaExceeded) {
+		t.Fatalf("negative reserve got %v", err)
+	}
+}
+
+func TestSettleQuotaClampsToTotal(t *testing.T) {
+	s, tok := seedToken(t, 100, 0)
+	r, err := s.Tokens.ReserveQuota(ctx, tok.ID, 10, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Tokens.SettleQuota(ctx, r, 1000); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.Tokens.Get(ctx, tok.ID)
+	if got.QuotaUsed != 100 {
+		t.Fatalf("used=%d, want clamped to 100", got.QuotaUsed)
 	}
 }
 

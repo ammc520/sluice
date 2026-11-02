@@ -78,14 +78,25 @@ func TestQuotaRequestCountReservesOne(t *testing.T) {
 	}
 }
 
-func TestQuotaEmbeddingChecksWithoutReserving(t *testing.T) {
+func TestQuotaEmbeddingHoldsDefaultReserve(t *testing.T) {
 	fake := &fakeTokenStore{}
 	svc := New(fake, 4096, time.Now)
 	if _, err := svc.Reserve(context.Background(), &store.Token{QuotaType: "tokens"}, EndpointEmbedding, 0); err != nil {
 		t.Fatal(err)
 	}
-	if fake.lastReserve != 0 || fake.reserveCalls != 1 {
+	if fake.lastReserve != 4096 || fake.reserveCalls != 1 {
 		t.Fatalf("reserve=%d calls=%d", fake.lastReserve, fake.reserveCalls)
+	}
+}
+
+func TestQuotaGenerationClampsHugeMaxTokens(t *testing.T) {
+	fake := &fakeTokenStore{}
+	svc := New(fake, 4096, time.Now)
+	if _, err := svc.Reserve(context.Background(), &store.Token{QuotaType: "tokens"}, EndpointGeneration, 1<<62); err != nil {
+		t.Fatal(err)
+	}
+	if fake.lastReserve != MaxReservePerRequest {
+		t.Fatalf("got %d", fake.lastReserve)
 	}
 }
 
