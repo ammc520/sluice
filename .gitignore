@@ -7,3 +7,5 @@ coverage.out
 spool/
 *.test
 .DS_Store
+
+.tmp/
