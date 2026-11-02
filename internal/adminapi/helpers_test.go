@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/company/api-key/internal/adminauth"
 	"github.com/company/api-key/internal/crypto"
@@ -29,6 +30,7 @@ type adminSession struct {
 type adminEnv struct {
 	t            *testing.T
 	store        *postgres.Store
+	pool         *pgxpool.Pool
 	engine       *gin.Engine
 	auth         *adminauth.Service
 	cipher       *crypto.Cipher
@@ -64,7 +66,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := &adminEnv{t: t, store: pg, cipher: cipher, sessions: map[string]adminSession{}}
+	env := &adminEnv{t: t, store: pg, pool: pool, cipher: cipher, sessions: map[string]adminSession{}}
 	if err := pool.QueryRow(context.Background(),
 		`INSERT INTO departments (name) VALUES ('Engineering') RETURNING id`).Scan(&env.departmentID); err != nil {
 		t.Fatalf("seed department: %v", err)
@@ -91,6 +93,8 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	modelRoutes := NewRouteHandler(pg.Routes, pg.Providers, nil)
 	dlpRules := NewDLPRuleHandler(pg.DLPRules, nil)
 	dlpTester := NewDLPTestHandler(pg.DLPRules)
+	auditHandler := NewAuditHandler(pg.Audit, pg.Admins, env.cipher, time.Now, nil)
+	dashboard := NewDashboardHandler(pg.Audit, time.Now)
 
 	r := gin.New()
 	api := r.Group("/admin/api")
@@ -125,6 +129,15 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.PUT("/dlp-rules/:id", adminauth.RequireRole("operator"), dlpRules.Update)
 	authed.DELETE("/dlp-rules/:id", adminauth.RequireRole("operator"), dlpRules.Delete)
 	authed.POST("/dlp-rules/test", adminauth.RequireRole("operator"), dlpTester.Test)
+
+	authed.GET("/audit", auditHandler.List)
+	authed.GET("/audit/:id", auditHandler.Detail)
+	authed.POST("/audit/:id/reveal", adminauth.RequireRole("super_admin"), auditHandler.Reveal)
+
+	authed.GET("/dashboard/overview", dashboard.Overview)
+	authed.GET("/dashboard/trend", dashboard.Trend)
+	authed.GET("/dashboard/top-users", dashboard.TopUsers)
+	authed.GET("/dashboard/dlp", dashboard.DLP)
 
 	env.engine = r
 	return env
