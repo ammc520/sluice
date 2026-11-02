@@ -18,15 +18,28 @@ import (
 	"github.com/company/api-key/internal/store"
 )
 
-// ErrUnsupportedContent reports binary, image, file, or audio content that
-// the text-only DLP engine cannot inspect safely.
-var ErrUnsupportedContent = errors.New("dlp: unsupported binary or media content")
+var (
+	// ErrUnsupportedContent reports binary, image, file, or audio content that
+	// the text-only DLP engine cannot inspect safely.
+	ErrUnsupportedContent = errors.New("dlp: unsupported binary or media content")
+	// ErrDuplicateKeys rejects JSON objects whose duplicate keys could make
+	// the scanner and the upstream disagree about which value is used.
+	ErrDuplicateKeys = errors.New("dlp: duplicate JSON object keys")
+	// ErrTooManyMatches rejects inputs that would create excessive masking
+	// work or output amplification.
+	ErrTooManyMatches = errors.New("dlp: too many matches")
+)
+
+// maxHitsPerInspection bounds per-request hit and masking work.
+const maxHitsPerInspection = 10_000
 
 // Result is the outcome of inspecting a request body or text.
 type Result struct {
 	Action string
 	Hits   []Hit
 	Body   []byte
+
+	limitExceeded bool
 }
 
 // Hit is one rule match.
@@ -122,14 +135,26 @@ func (e *Engine) Inspect(body []byte) (Result, error) {
 
 	rules := e.snapshot()
 	if !json.Valid(body) {
-		return scanText(string(body), rules), nil
+		result := scanText(string(body), rules)
+		if result.limitExceeded {
+			return Result{}, ErrTooManyMatches
+		}
+		return result, nil
+	}
+
+	duplicate, err := hasDuplicateKeys(body)
+	if err != nil {
+		return Result{}, err
+	}
+	if duplicate {
+		return Result{}, ErrDuplicateKeys
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
-		return scanText(string(body), rules), nil
+		return Result{}, ErrUnsupportedContent
 	}
 	if err := rejectUnsupported(value); err != nil {
 		return Result{}, err
@@ -139,6 +164,9 @@ func (e *Engine) Inspect(body []byte) (Result, error) {
 	rewritten, err := inspectValue(value, rules, &result)
 	if err != nil {
 		return Result{}, err
+	}
+	if result.limitExceeded {
+		return Result{}, ErrTooManyMatches
 	}
 	// Preserve the exact request bytes unless masking requires a rewrite.
 	if !hasMaskHits(result.Hits) {
@@ -151,6 +179,61 @@ func (e *Engine) Inspect(body []byte) (Result, error) {
 	}
 	result.Body = encoded
 	return result, nil
+}
+
+// hasDuplicateKeys walks the JSON token stream. encoding/json silently keeps
+// the last value for duplicate keys, while other parsers may keep the first;
+// forwarding such a body would make the scan and the upstream disagree.
+func hasDuplicateKeys(data []byte) (bool, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var walk func() (bool, error)
+	walk = func() (bool, error) {
+		token, err := decoder.Token()
+		if err != nil {
+			return false, err
+		}
+		delim, ok := token.(json.Delim)
+		if !ok {
+			return false, nil
+		}
+		switch delim {
+		case '{':
+			seen := make(map[string]struct{})
+			for decoder.More() {
+				keyToken, err := decoder.Token()
+				if err != nil {
+					return false, err
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return false, fmt.Errorf("dlp: invalid object key")
+				}
+				if _, exists := seen[key]; exists {
+					return true, nil
+				}
+				seen[key] = struct{}{}
+				duplicate, err := walk()
+				if err != nil || duplicate {
+					return duplicate, err
+				}
+			}
+			_, err = decoder.Token() // closing '}'
+			return false, err
+		case '[':
+			for decoder.More() {
+				duplicate, err := walk()
+				if err != nil || duplicate {
+					return duplicate, err
+				}
+			}
+			_, err = decoder.Token() // closing ']'
+			return false, err
+		default:
+			return false, nil
+		}
+	}
+	return walk()
 }
 
 func hasMaskHits(hits []Hit) bool {
@@ -167,20 +250,11 @@ func (e *Engine) Test(text string) (Result, error) {
 	if !utf8.ValidString(text) || strings.IndexByte(text, 0) >= 0 {
 		return Result{}, ErrUnsupportedContent
 	}
-	return scanText(text, e.snapshot()), nil
-}
-
-var skippedKeys = map[string]bool{
-	"model":                 true,
-	"role":                  true,
-	"type":                  true,
-	"id":                    true,
-	"stream":                true,
-	"max_tokens":            true,
-	"max_completion_tokens": true,
-	"temperature":           true,
-	"top_p":                 true,
-	"stop":                  true,
+	result := scanText(text, e.snapshot())
+	if result.limitExceeded {
+		return Result{}, ErrTooManyMatches
+	}
+	return result, nil
 }
 
 var unsupportedTypes = map[string]bool{
@@ -197,11 +271,15 @@ func inspectValue(value any, rules []compiledRule, result *Result) (any, error) 
 		scanned := scanText(typed, rules)
 		mergeResult(result, scanned)
 		return string(scanned.Body), nil
+	case json.Number:
+		inspectUnrewritable(string(typed), rules, result)
+		return typed, nil
 	case map[string]any:
 		for key, child := range typed {
-			if skippedKeys[strings.ToLower(key)] {
-				continue
-			}
+			// Keys are attacker-controlled text too. A mask match in a key
+			// cannot be rewritten without changing the JSON shape, so it
+			// escalates to block rather than leaking the value.
+			inspectUnrewritable(key, rules, result)
 			rewritten, err := inspectValue(child, rules, result)
 			if err != nil {
 				return nil, err
@@ -220,6 +298,14 @@ func inspectValue(value any, rules []compiledRule, result *Result) (any, error) 
 		return typed, nil
 	default:
 		return value, nil
+	}
+}
+
+func inspectUnrewritable(text string, rules []compiledRule, result *Result) {
+	scanned := scanText(text, rules)
+	mergeResult(result, scanned)
+	if scanned.Action == "mask" {
+		result.Action = "block"
 	}
 }
 
@@ -259,6 +345,9 @@ func mergeResult(dst *Result, src Result) {
 	if actionRank(src.Action) > actionRank(dst.Action) {
 		dst.Action = src.Action
 	}
+	if src.limitExceeded {
+		dst.limitExceeded = true
+	}
 }
 
 type maskInterval struct {
@@ -272,8 +361,13 @@ func scanText(text string, rules []compiledRule) Result {
 	result := Result{Action: "none"}
 	var masks []maskInterval
 
+scan:
 	for _, compiled := range rules {
 		for _, loc := range compiled.re.FindAllStringIndex(text, -1) {
+			if len(result.Hits) >= maxHitsPerInspection {
+				result.limitExceeded = true
+				break scan
+			}
 			if compiled.validate != nil && !compiled.validate(text[loc[0]:loc[1]]) {
 				continue
 			}
@@ -299,6 +393,10 @@ func scanText(text string, rules []compiledRule) Result {
 		}
 	}
 
+	if result.limitExceeded {
+		result.Body = []byte(text)
+		return result
+	}
 	result.Body = []byte(applyMasks(text, masks))
 	return result
 }
@@ -337,11 +435,18 @@ func applyMasks(text string, masks []maskInterval) string {
 		merged = append(merged, current)
 	}
 
-	for i := len(merged) - 1; i >= 0; i-- {
-		interval := merged[i]
-		text = text[:interval.start] + interval.replacement + text[interval.end:]
+	// Build the masked text in one pass; repeated slicing and concatenation
+	// would be quadratic for bodies with many matches.
+	var builder strings.Builder
+	builder.Grow(len(text))
+	last := 0
+	for _, interval := range merged {
+		builder.WriteString(text[last:interval.start])
+		builder.WriteString(interval.replacement)
+		last = interval.end
 	}
-	return text
+	builder.WriteString(text[last:])
+	return builder.String()
 }
 
 func actionRank(action string) int {

@@ -179,7 +179,7 @@ func TestKeywordMatchIsCaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestControlFieldsAreNotScanned(t *testing.T) {
+func TestControlFieldsAreScanned(t *testing.T) {
 	rule := builtinRule(t, BuiltinCloudKeyName)
 	engine := mustEngine(t, rule)
 	input := []byte(`{"model":"AKIAABCDEFGHIJKLMNOP","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
@@ -187,8 +187,58 @@ func TestControlFieldsAreNotScanned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Hits) != 0 || res.Action != "none" {
-		t.Fatalf("control field scanned: %+v", res)
+	if len(res.Hits) != 1 || res.Action != "block" {
+		t.Fatalf("control field not scanned: %+v", res)
+	}
+}
+
+func TestModelMaskIsAppliedToControlField(t *testing.T) {
+	engine := mustEngine(t, testRule("phone", `1[3-9]\d{9}`, "mask", 1))
+	res, err := engine.Inspect([]byte(`{"model":"13800138000","messages":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Action != "mask" || strings.Contains(string(res.Body), "13800138000") {
+		t.Fatalf("result %+v body %s", res, res.Body)
+	}
+}
+
+func TestUnrewritableMaskHitsBlock(t *testing.T) {
+	t.Run("object key", func(t *testing.T) {
+		engine := mustEngine(t, testRule("phone", `1[3-9]\d{9}`, "mask", 1))
+		res, err := engine.Inspect([]byte(`{"13800138000":"value"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Action != "block" || len(res.Hits) != 1 {
+			t.Fatalf("result %+v", res)
+		}
+	})
+
+	t.Run("number", func(t *testing.T) {
+		engine := mustEngine(t, testRule("phone", `1[3-9]\d{9}`, "mask", 1))
+		res, err := engine.Inspect([]byte(`{"count":13800138000}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Action != "block" || len(res.Hits) != 1 {
+			t.Fatalf("result %+v", res)
+		}
+	})
+}
+
+func TestDuplicateJSONKeysAreRejected(t *testing.T) {
+	engine := mustEngine(t, testRule("phone", `1[3-9]\d{9}`, "mask", 1))
+	if _, err := engine.Inspect([]byte(`{"messages":[{"content":"safe"}],"messages":[{"content":"13800138000"}]}`)); !errors.Is(err, ErrDuplicateKeys) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestTooManyMatchesAreRejected(t *testing.T) {
+	engine := mustEngine(t, testRule("phone", `1[3-9]\d{9}`, "mask", 1))
+	text := strings.Repeat("13800138000 ", maxHitsPerInspection+1)
+	if _, err := engine.Test(text); !errors.Is(err, ErrTooManyMatches) {
+		t.Fatalf("got %v", err)
 	}
 }
 

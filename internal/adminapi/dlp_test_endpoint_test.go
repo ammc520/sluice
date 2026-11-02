@@ -87,8 +87,23 @@ func TestDLPTestEndpointUsesTemporaryRules(t *testing.T) {
 }
 
 func TestDLPTestEndpointRejectsInvalidTemporaryRule(t *testing.T) {
+	cases := []string{
+		`{"text":"x","rules":[{"name":"bad","match_type":"regex","pattern":"(","action":"mask"}]}`,
+		`{"text":"x","rules":[{"name":"bad","match_type":"regex","pattern":"` + strings.Repeat("a", 4097) + `","action":"mask"}]}`,
+		`{"text":"x","rules":[{"name":"` + strings.Repeat("a", 129) + `","match_type":"keyword","pattern":"x","action":"mask"}]}`,
+		`{"text":"x","rules":[{"name":"bad","match_type":"keyword","pattern":"x","action":"mask","replacement":"` + strings.Repeat("r", 129) + `"}]}`,
+	}
 	env := newAdminEnv(t)
-	body := `{"text":"x","rules":[{"name":"bad","match_type":"regex","pattern":"(","action":"mask"}]}`
+	for _, body := range cases {
+		if rr := env.do("operator", http.MethodPost, "/admin/api/dlp-rules/test", body); rr.Code != http.StatusBadRequest {
+			t.Fatalf("got %d %s", rr.Code, rr.Body.String())
+		}
+	}
+}
+
+func TestDLPTestEndpointRejectsOversizedText(t *testing.T) {
+	env := newAdminEnv(t)
+	body := `{"text":"` + strings.Repeat("a", maxDLPTestTextBytes+1) + `"}`
 	if rr := env.do("operator", http.MethodPost, "/admin/api/dlp-rules/test", body); rr.Code != http.StatusBadRequest {
 		t.Fatalf("got %d %s", rr.Code, rr.Body.String())
 	}

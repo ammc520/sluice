@@ -3,13 +3,18 @@ package adminapi
 import (
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/company/api-key/internal/dlp"
 	"github.com/company/api-key/internal/store"
+)
+
+const (
+	maxDLPTestBodyBytes = 1 << 20
+	maxDLPTestTextBytes = 256 * 1024
+	maxDLPTestRules     = 200
 )
 
 // DLPTestHandler previews DLP matches without writing data.
@@ -35,36 +40,43 @@ type dlpTestRulePayload struct {
 	AlertEnabled bool   `json:"alert_enabled"`
 }
 
-func (p *dlpTestRulePayload) toStore() store.DLPRule {
-	enabled := true
-	if p.Enabled != nil {
-		enabled = *p.Enabled
-	}
-	priority := 100
-	if p.Priority != nil {
-		priority = *p.Priority
-	}
-	category := strings.TrimSpace(p.Category)
-	if category == "" {
-		category = "custom"
-	}
-	replacement := p.Replacement
-	if replacement == "" {
-		replacement = "***"
-	}
-	return store.DLPRule{
-		ID:           uuid.New(),
-		Name:         strings.TrimSpace(p.Name),
+func (p *dlpTestRulePayload) toStore() (store.DLPRule, string) {
+	rule := dlpRulePayload{
+		Name:         p.Name,
 		Description:  p.Description,
-		Category:     category,
+		Category:     p.Category,
 		MatchType:    p.MatchType,
 		Pattern:      p.Pattern,
 		Action:       p.Action,
-		Replacement:  replacement,
+		Replacement:  p.Replacement,
+		Priority:     p.Priority,
+		Enabled:      p.Enabled,
+		AlertEnabled: &p.AlertEnabled,
+	}
+	if message := rule.normalize(); message != "" {
+		return store.DLPRule{}, message
+	}
+	enabled := true
+	if rule.Enabled != nil {
+		enabled = *rule.Enabled
+	}
+	priority := 100
+	if rule.Priority != nil {
+		priority = *rule.Priority
+	}
+	return store.DLPRule{
+		ID:           uuid.New(),
+		Name:         rule.Name,
+		Description:  rule.Description,
+		Category:     rule.Category,
+		MatchType:    rule.MatchType,
+		Pattern:      rule.Pattern,
+		Action:       rule.Action,
+		Replacement:  rule.Replacement,
 		Priority:     priority,
 		Enabled:      enabled,
 		AlertEnabled: p.AlertEnabled,
-	}
+	}, ""
 }
 
 type dlpTestRequest struct {
@@ -83,16 +95,31 @@ type dlpTestHitDTO struct {
 
 // Test handles POST /admin/api/dlp-rules/test.
 func (h *DLPTestHandler) Test(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxDLPTestBodyBytes)
 	var payload dlpTestRequest
 	if err := c.ShouldBindJSON(&payload); err != nil {
 		BadRequest(c, "invalid JSON body")
 		return
 	}
+	if len(payload.Text) > maxDLPTestTextBytes {
+		BadRequest(c, "text is too long")
+		return
+	}
+	if len(payload.Rules) > maxDLPTestRules {
+		BadRequest(c, "too many rules")
+		return
+	}
 
 	var rules []store.DLPRule
 	if payload.Rules != nil {
+		rules = make([]store.DLPRule, 0, len(payload.Rules))
 		for i := range payload.Rules {
-			rules = append(rules, payload.Rules[i].toStore())
+			rule, message := payload.Rules[i].toStore()
+			if message != "" {
+				BadRequest(c, "invalid rule: "+message)
+				return
+			}
+			rules = append(rules, rule)
 		}
 	} else {
 		enabled, err := h.rules.ListEnabled(c.Request.Context())
@@ -110,11 +137,14 @@ func (h *DLPTestHandler) Test(c *gin.Context) {
 	}
 	result, err := engine.Test(payload.Text)
 	if err != nil {
-		if errors.Is(err, dlp.ErrUnsupportedContent) {
+		switch {
+		case errors.Is(err, dlp.ErrUnsupportedContent):
 			Fail(c, http.StatusUnsupportedMediaType, "unsupported_content", "text contains unsupported content")
-			return
+		case errors.Is(err, dlp.ErrTooManyMatches):
+			BadRequest(c, "text has too many matches")
+		default:
+			InternalError(c)
 		}
-		InternalError(c)
 		return
 	}
 
