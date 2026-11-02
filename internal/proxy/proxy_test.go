@@ -357,24 +357,3 @@ func TestUpstreamURL(t *testing.T) {
 		}
 	}
 }
-
-func TestParseUsage(t *testing.T) {
-	cases := []struct {
-		name     string
-		body     string
-		protocol string
-		want     Usage
-	}{
-		{"openai", `{"usage":{"prompt_tokens":3,"completion_tokens":4,"total_tokens":7}}`, "openai_compatible", Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7}},
-		{"anthropic", `{"usage":{"input_tokens":3,"output_tokens":4}}`, "anthropic", Usage{PromptTokens: 3, CompletionTokens: 4, TotalTokens: 7}},
-		{"missing", `{"id":"x"}`, "openai_compatible", Usage{Estimated: true}},
-		{"invalid", `not json`, "openai_compatible", Usage{Estimated: true}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := parseUsage([]byte(tc.body), tc.protocol); got != tc.want {
-				t.Fatalf("got %+v want %+v", got, tc.want)
-			}
-		})
-	}
-}

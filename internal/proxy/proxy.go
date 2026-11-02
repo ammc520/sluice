@@ -90,9 +90,13 @@ func defaultClient() *http.Client {
 	return netguard.NewClient(0, 120*time.Second)
 }
 
-// Do forwards req upstream and writes the response to w. The caller owns
-// translating the returned error into a client response.
+// Do forwards a non-streaming request upstream and writes the response to w.
+// The caller owns translating the returned error into a client response.
 func (p *Proxy) Do(ctx context.Context, w http.ResponseWriter, req Request) (Result, error) {
+	return p.forward(ctx, w, req, false, nil)
+}
+
+func (p *Proxy) forward(ctx context.Context, w http.ResponseWriter, req Request, stream bool, flush func()) (Result, error) {
 	apiKey, err := p.providerKey(req.Target.Provider)
 	if err != nil {
 		return Result{}, err
@@ -103,7 +107,14 @@ func (p *Proxy) Do(ctx context.Context, w http.ResponseWriter, req Request) (Res
 	}
 
 	body := rewriteModel(req.Body, req.Target.UpstreamModel)
-	callCtx, cancel := context.WithTimeout(ctx, providerTimeout(req.Target.Provider.TimeoutSeconds))
+	var callCtx context.Context
+	var cancel context.CancelFunc
+	if stream {
+		// Streaming uses an idle timeout instead of a total request deadline.
+		callCtx, cancel = context.WithCancel(ctx)
+	} else {
+		callCtx, cancel = context.WithTimeout(ctx, providerTimeout(req.Target.Provider.TimeoutSeconds))
+	}
 	defer cancel()
 
 	upstreamReq, err := http.NewRequestWithContext(callCtx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -115,6 +126,10 @@ func (p *Proxy) Do(ctx context.Context, w http.ResponseWriter, req Request) (Res
 		upstreamReq.Method = http.MethodGet
 	}
 	upstreamReq.Header = prepareHeaders(req.Header, req.Target, apiKey)
+	if stream {
+		// Never let transport gzip buffering delay SSE chunks.
+		upstreamReq.Header.Set("Accept-Encoding", "identity")
+	}
 	if req.RequestID != "" {
 		upstreamReq.Header.Set("X-Request-ID", req.RequestID)
 	}
@@ -133,9 +148,20 @@ func (p *Proxy) Do(ctx context.Context, w http.ResponseWriter, req Request) (Res
 	}
 
 	copyResponseHeaders(w.Header(), resp.Header)
+	if stream {
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("X-Accel-Buffering", "no")
+	}
 	w.WriteHeader(resp.StatusCode)
+	if stream && flush != nil {
+		flush()
+	}
 
 	captured := &captureWriter{w: w, limit: p.captureLimit}
+	if stream {
+		return p.copyStream(ctx, callCtx, cancel, w, captured, flush, resp, req.Target.Protocol, start, result)
+	}
+
 	if _, err := io.CopyBuffer(captured, resp.Body, make([]byte, 32*1024)); err != nil {
 		result.ResponseBody = captured.bytes()
 		if ctx.Err() != nil || callCtx.Err() == context.Canceled {
@@ -252,40 +278,4 @@ func (c *captureWriter) Write(p []byte) (int, error) {
 
 func (c *captureWriter) bytes() []byte {
 	return c.buf.Bytes()
-}
-
-// parseUsage extracts token counts from an OpenAI or Anthropic JSON response.
-// Estimated is set when the upstream did not report usage.
-func parseUsage(body []byte, protocol string) Usage {
-	var payload struct {
-		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
-			TotalTokens      int `json:"total_tokens"`
-			InputTokens      int `json:"input_tokens"`
-			OutputTokens     int `json:"output_tokens"`
-		} `json:"usage"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return Usage{Estimated: true}
-	}
-	u := payload.Usage
-	usage := Usage{
-		PromptTokens:     u.PromptTokens,
-		CompletionTokens: u.CompletionTokens,
-		TotalTokens:      u.TotalTokens,
-	}
-	if usage.PromptTokens == 0 && u.InputTokens > 0 {
-		usage.PromptTokens = u.InputTokens
-	}
-	if usage.CompletionTokens == 0 && u.OutputTokens > 0 {
-		usage.CompletionTokens = u.OutputTokens
-	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	}
-	if usage.TotalTokens == 0 {
-		usage.Estimated = true
-	}
-	return usage
 }
