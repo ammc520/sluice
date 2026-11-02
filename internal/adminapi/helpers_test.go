@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -29,8 +30,10 @@ type adminEnv struct {
 	store        *postgres.Store
 	engine       *gin.Engine
 	auth         *adminauth.Service
+	cipher       *crypto.Cipher
 	employeeID   string
 	departmentID int64
+	providerID   string
 	sessions     map[string]adminSession
 }
 
@@ -56,7 +59,11 @@ func newAdminEnv(t *testing.T) *adminEnv {
 		}
 	}
 
-	env := &adminEnv{t: t, store: pg, sessions: map[string]adminSession{}}
+	cipher, err := crypto.NewCipher(bytes.Repeat([]byte{0x42}, 32), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := &adminEnv{t: t, store: pg, cipher: cipher, sessions: map[string]adminSession{}}
 	if err := pool.QueryRow(context.Background(),
 		`INSERT INTO departments (name) VALUES ('Engineering') RETURNING id`).Scan(&env.departmentID); err != nil {
 		t.Fatalf("seed department: %v", err)
@@ -78,6 +85,9 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authHandler := NewAuthHandler(env.auth, false)
 	employees := NewEmployeeHandler(pg.Employees)
 	tokens := NewTokenHandler(pg.Tokens, pg.Employees, time.Now)
+	providers := NewProviderHandler(pg.Providers, env.cipher, nil, nil)
+	modelRoutes := NewRouteHandler(pg.Routes, pg.Providers, nil)
+	dlpRules := NewDLPRuleHandler(pg.DLPRules, nil)
 
 	r := gin.New()
 	api := r.Group("/admin/api")
@@ -97,8 +107,42 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.POST("/tokens/:id/revoke", adminauth.RequireRole("operator"), tokens.Revoke)
 	authed.POST("/tokens/:id/rotate", adminauth.RequireRole("operator"), tokens.Rotate)
 
+	authed.GET("/providers", providers.List)
+	authed.POST("/providers", adminauth.RequireRole("operator"), providers.Create)
+	authed.PUT("/providers/:id", adminauth.RequireRole("operator"), providers.Update)
+	authed.DELETE("/providers/:id", adminauth.RequireRole("operator"), providers.Delete)
+	authed.POST("/providers/:id/test", adminauth.RequireRole("operator"), providers.Test)
+
+	authed.GET("/model-routes", modelRoutes.List)
+	authed.POST("/model-routes", adminauth.RequireRole("operator"), modelRoutes.Create)
+	authed.DELETE("/model-routes/:id", adminauth.RequireRole("operator"), modelRoutes.Delete)
+
+	authed.GET("/dlp-rules", dlpRules.List)
+	authed.POST("/dlp-rules", adminauth.RequireRole("operator"), dlpRules.Create)
+	authed.PUT("/dlp-rules/:id", adminauth.RequireRole("operator"), dlpRules.Update)
+	authed.DELETE("/dlp-rules/:id", adminauth.RequireRole("operator"), dlpRules.Delete)
+
 	env.engine = r
 	return env
+}
+
+// createProvider seeds a provider through the API and records its ID.
+func (e *adminEnv) createProvider(t *testing.T, name, protocol string) string {
+	t.Helper()
+	return e.createProviderWithBase(t, name, protocol, "https://example.com")
+}
+
+func (e *adminEnv) createProviderWithBase(t *testing.T, name, protocol, baseURL string) string {
+	t.Helper()
+	body := fmt.Sprintf(`{"name":%q,"protocol":%q,"base_url":%q,"api_key":"sk-real-secret"}`, name, protocol, baseURL)
+	rr := e.do("super_admin", http.MethodPost, "/admin/api/providers", body)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create provider: %d %s", rr.Code, rr.Body.String())
+	}
+	var dto providerDTO
+	decodeData(t, rr, &dto)
+	e.providerID = dto.ID
+	return dto.ID
 }
 
 // login authenticates once per role and caches the cookies.
