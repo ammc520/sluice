@@ -4,13 +4,15 @@ import type { RouteRecordRaw } from 'vue-router'
 import AdminLayout from '../layouts/AdminLayout.vue'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
+import AdminUsersView from '../views/AdminUsersView.vue'
+import AuditView from '../views/AuditView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import DLPRulesView from '../views/DLPRulesView.vue'
 import EmployeesView from '../views/EmployeesView.vue'
 import LoginView from '../views/LoginView.vue'
 import ModelRoutesView from '../views/ModelRoutesView.vue'
-import PlaceholderView from '../views/PlaceholderView.vue'
 import ProvidersView from '../views/ProvidersView.vue'
+import SettingsView from '../views/SettingsView.vue'
 import TokensView from '../views/TokensView.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -58,31 +60,19 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'audit',
         name: 'audit',
-        component: PlaceholderView,
-        props: {
-          title: '审计日志',
-          description: '检索 API 调用、DLP 命中与处置记录。',
-        },
+        component: AuditView,
       },
       {
         path: 'settings',
         name: 'settings',
-        component: PlaceholderView,
+        component: SettingsView,
         meta: { superOnly: true },
-        props: {
-          title: '系统设置',
-          description: '配置邮件告警与审计日志保留策略。',
-        },
       },
       {
         path: 'admin-users',
         name: 'admin-users',
-        component: PlaceholderView,
+        component: AdminUsersView,
         meta: { superOnly: true },
-        props: {
-          title: '管理员账号',
-          description: '管理后台账号、角色与密码。',
-        },
       },
     ],
   },

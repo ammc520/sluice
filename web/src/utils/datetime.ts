@@ -41,3 +41,24 @@ export function toShanghaiInput(value: string | null | undefined): string {
   const parts = shanghaiParts(value)
   return parts ? `${parts.date}T${parts.time}` : ''
 }
+
+/** Returns an Asia/Shanghai calendar date (YYYY-MM-DD) for a date value. */
+export function toShanghaiDate(
+  value: string | Date | null | undefined,
+): string {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return shanghaiFormatter
+    .formatToParts(date)
+    .filter((part) =>
+      part.type === 'year' || part.type === 'month' || part.type === 'day',
+    )
+    .map((part) => part.value)
+    .join('-')
+}
+
+/** Returns the Asia/Shanghai calendar date for N days before now. */
+export function shanghaiDateDaysAgo(days: number): string {
+  return toShanghaiDate(new Date(Date.now() - days * 24 * 60 * 60 * 1000))
+}

@@ -29,6 +29,20 @@ const translatedMessages: Record<string, string> = {
     '内置规则仅允许调整说明、动作、替换文本、优先级与启用/告警开关',
   'text has too many matches': '测试文本命中的敏感内容过多，请缩短后重试',
   'text is too long': '测试文本过长',
+  'password must be at least 12 characters': '密码至少需要 12 个字符',
+  'password is too long': '密码过长',
+  'username must be 3-64 characters using letters, digits, dot, underscore, or hyphen':
+    '用户名需为 3-64 位字母、数字、点、下划线或连字符',
+  'role must be super_admin, operator, or auditor':
+    '角色必须是超级管理员、操作员或审计员',
+  'password must be re-entered when SMTP host or username changes':
+    '修改 SMTP 服务器或用户名后必须重新输入密码',
+  'SMTP is not configured': '请先保存 SMTP 设置',
+  'SMTP test delivery failed': '测试邮件发送失败，请检查 SMTP 配置',
+  'reason must be at least 5 characters': '查看原因至少需要 5 个字符',
+  'reason is too long': '查看原因过长',
+  'audit record not found': '审计记录不存在',
+  'insufficient role': '当前账号无权执行此操作',
 }
 
 /** Converts API failures into concise Chinese messages for the admin UI. */

@@ -186,3 +186,141 @@ export interface DLPTestResult {
   hits: DLPHit[]
   masked_text: string
 }
+
+export interface DashboardOverview {
+  from: string
+  to: string
+  total_calls: number
+  active_users: number
+  total_tokens: number
+  dlp_hits: number
+  error_calls: number
+  error_rate: number
+}
+
+export interface TrendPoint {
+  day: string
+  calls: number
+  tokens: number
+}
+
+export interface TrendResponse {
+  interval: 'day'
+  items: TrendPoint[]
+}
+
+export interface TopUser {
+  employee_id: string
+  name: string
+  calls: number
+  tokens: number
+}
+
+export interface DLPStat {
+  rule_name: string
+  action: DLPAction
+  hits: number
+}
+
+export interface AuditDLPHit {
+  rule_id: string
+  rule_name: string
+  action: DLPAction
+}
+
+export interface AuditLog {
+  id: number
+  event_time: string
+  request_id: string
+  token_id: string | null
+  employee_id: string | null
+  department_id: number | null
+  client_ip: string
+  method: string
+  path: string
+  model: string
+  provider_id: string | null
+  status_code: number
+  error_code: string
+  latency_ms: number
+  upstream_latency_ms: number
+  first_byte_ms: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  usage_estimated: boolean
+  has_prompt: boolean
+  has_response: boolean
+  prompt_truncated: boolean
+  response_truncated: boolean
+  dlp_action: DLPAction | 'none' | ''
+  dlp_hits: AuditDLPHit[]
+  client_disconnected: boolean
+  upstream_request_id: string
+  created_at: string
+}
+
+export interface AuditListResponse {
+  items: AuditLog[]
+  next_cursor: string
+}
+
+export interface AuditRevealResult {
+  prompt: string
+  response: string
+}
+
+export interface SMTPSettings {
+  host: string
+  port: number
+  username: string
+  password_set: boolean
+  from: string
+  to: string[]
+  use_tls: boolean
+}
+
+export interface SMTPSettingsPayload {
+  host: string
+  port: number
+  username: string
+  password: string
+  from: string
+  to: string[]
+  use_tls: boolean
+}
+
+export interface SMTPTestResult {
+  sent: boolean
+}
+
+export interface AuditSettings {
+  retention_days: number
+  alert_enabled: boolean
+}
+
+export interface AuditSettingsPayload {
+  retention_days: number
+  alert_enabled: boolean
+}
+
+export interface AdminUserCreatePayload {
+  username: string
+  password: string
+  role: AdminRole
+  status: number
+}
+
+export interface AdminUserUpdatePayload {
+  username?: string
+  role?: AdminRole
+  status?: number
+}
+
+export interface AdminUserListResponse {
+  items: AdminUser[]
+}
+
+export interface ResetPasswordResult {
+  reset: boolean
+}
