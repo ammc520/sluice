@@ -53,6 +53,7 @@ type Result struct {
 	StatusCode         int
 	Usage              Usage
 	ResponseBody       []byte
+	ResponseTruncated  bool
 	UpstreamRequestID  string
 	FirstByteMS        int
 	ClientDisconnected bool
@@ -159,11 +160,14 @@ func (p *Proxy) forward(ctx context.Context, w http.ResponseWriter, req Request,
 
 	captured := &captureWriter{w: w, limit: p.captureLimit}
 	if stream {
-		return p.copyStream(ctx, callCtx, cancel, w, captured, flush, resp, req.Target.Protocol, start, result)
+		result, err = p.copyStream(ctx, callCtx, cancel, w, captured, flush, resp, req.Target.Protocol, start, result)
+		result.ResponseTruncated = captured.truncated
+		return result, err
 	}
 
 	if _, err := io.CopyBuffer(captured, resp.Body, make([]byte, 32*1024)); err != nil {
 		result.ResponseBody = captured.bytes()
+		result.ResponseTruncated = captured.truncated
 		if ctx.Err() != nil || callCtx.Err() == context.Canceled {
 			result.ClientDisconnected = true
 			return result, ErrClientDisconnected
@@ -172,6 +176,7 @@ func (p *Proxy) forward(ctx context.Context, w http.ResponseWriter, req Request,
 	}
 
 	result.ResponseBody = captured.bytes()
+	result.ResponseTruncated = captured.truncated
 	result.Usage = parseUsage(result.ResponseBody, req.Target.Protocol)
 	return result, nil
 }
@@ -260,9 +265,10 @@ func upstreamRequestID(header http.Header) string {
 }
 
 type captureWriter struct {
-	w     io.Writer
-	limit int
-	buf   bytes.Buffer
+	w         io.Writer
+	limit     int
+	buf       bytes.Buffer
+	truncated bool
 }
 
 func (c *captureWriter) Write(p []byte) (int, error) {
@@ -271,7 +277,10 @@ func (c *captureWriter) Write(p []byte) (int, error) {
 			c.buf.Write(p)
 		} else {
 			c.buf.Write(p[:remaining])
+			c.truncated = true
 		}
+	} else if len(p) > 0 {
+		c.truncated = true
 	}
 	return c.w.Write(p)
 }

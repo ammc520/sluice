@@ -58,7 +58,9 @@ func copyResponseHeaders(dst, src http.Header) {
 			continue
 		}
 		switch strings.ToLower(name) {
-		case "set-cookie", "content-length":
+		case "set-cookie", "content-length", "x-request-id":
+			// The gateway owns the client-facing request ID; the upstream ID
+			// is captured separately in Result.UpstreamRequestID.
 			continue
 		}
 		for _, value := range values {

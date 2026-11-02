@@ -238,6 +238,9 @@ func TestProxyCaptureLimitDoesNotTruncateClient(t *testing.T) {
 	if len(result.ResponseBody) != 17 || string(result.ResponseBody) != payload[:17] {
 		t.Fatalf("captured %d bytes", len(result.ResponseBody))
 	}
+	if !result.ResponseTruncated {
+		t.Fatal("response truncation not recorded")
+	}
 	if !result.Usage.Estimated {
 		t.Fatal("usage without upstream counts should be estimated")
 	}
