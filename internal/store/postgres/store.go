@@ -24,28 +24,32 @@ func New(pool *pgxpool.Pool) *Store { return newStore(pool) }
 // because the domain interfaces reuse method names (Create/Get/Update/List)
 // with different types, which a single Go type cannot implement.
 type Store struct {
-	pool      *pgxpool.Pool
-	Employees *EmployeeStore
-	Tokens    *TokenStore
-	Providers *ProviderStore
-	Routes    *RouteStore
-	DLPRules  *DLPRuleStore
-	Audit     *AuditStore
-	Admins    *AdminStore
-	Settings  *SettingsStore
+	pool        *pgxpool.Pool
+	Employees   *EmployeeStore
+	Tokens      *TokenStore
+	Providers   *ProviderStore
+	Routes      *RouteStore
+	DLPRules    *DLPRuleStore
+	Audit       *AuditStore
+	Admins      *AdminStore
+	Settings    *SettingsStore
+	Departments *DepartmentStore
+	Dashboard   *DashboardStore
 }
 
 func newStore(pool *pgxpool.Pool) *Store {
 	return &Store{
-		pool:      pool,
-		Employees: &EmployeeStore{pool: pool},
-		Tokens:    &TokenStore{pool: pool},
-		Providers: &ProviderStore{pool: pool},
-		Routes:    &RouteStore{pool: pool},
-		DLPRules:  &DLPRuleStore{pool: pool},
-		Audit:     &AuditStore{pool: pool},
-		Admins:    &AdminStore{pool: pool},
-		Settings:  &SettingsStore{pool: pool},
+		pool:        pool,
+		Employees:   &EmployeeStore{pool: pool},
+		Tokens:      &TokenStore{pool: pool},
+		Providers:   &ProviderStore{pool: pool},
+		Routes:      &RouteStore{pool: pool},
+		DLPRules:    &DLPRuleStore{pool: pool},
+		Audit:       &AuditStore{pool: pool},
+		Admins:      &AdminStore{pool: pool},
+		Settings:    &SettingsStore{pool: pool},
+		Departments: &DepartmentStore{pool: pool},
+		Dashboard:   &DashboardStore{pool: pool},
 	}
 }
 

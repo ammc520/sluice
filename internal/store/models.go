@@ -6,6 +6,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// Department groups employees for reporting and filtering.
+type Department struct {
+	ID   int64
+	Name string
+}
+
 // Employee is a company employee who may hold API tokens.
 type Employee struct {
 	ID           uuid.UUID

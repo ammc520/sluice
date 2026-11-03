@@ -75,6 +75,9 @@ function testResultText(result: ProviderTestResult | undefined): string {
   if (!result) return '未测试'
   if (result.reachable) {
     if (result.message?.includes('API key')) return '可连通，Key 可能无效'
+    if (result.message?.includes('messages endpoint')) return '可连通，但未找到消息端点'
+    if (result.message?.includes('test model')) return '可连通，但测试模型不可用'
+    if (result.message?.includes('rate limited')) return '可连通，但被限流'
     return result.status_code
       ? `连接正常（HTTP ${result.status_code}）`
       : '连接正常'
@@ -91,7 +94,7 @@ function testResultType(
 ): 'success' | 'warning' | 'danger' | 'info' {
   if (!result) return 'info'
   if (!result.reachable) return 'danger'
-  return result.message?.includes('API key') ? 'warning' : 'success'
+  return result.message ? 'warning' : 'success'
 }
 
 async function loadProviders(): Promise<void> {
@@ -323,7 +326,7 @@ onMounted(loadProviders)</script>
       />
 
       <el-table v-loading="loading" :data="providers" stripe>
-        <el-table-column prop="name" label="名称" min-width="140">
+        <el-table-column prop="name" label="名称" min-width="120">
           <template #default="{ row }">
             <div class="name-cell">
               <strong>{{ row.name }}</strong>
@@ -333,18 +336,18 @@ onMounted(loadProviders)</script>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="协议" width="130">
+        <el-table-column label="协议" width="110">
           <template #default="{ row }">
             <el-tag size="small" effect="plain">
               {{ protocolLabel(row.protocol) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="base_url" label="Base URL" min-width="240" />
-        <el-table-column label="API Key" width="140">
+        <el-table-column prop="base_url" label="Base URL" min-width="190" />
+        <el-table-column label="API Key" width="120">
           <template #default="{ row }">{{ apiKeyHint(row) }}</template>
         </el-table-column>
-        <el-table-column label="状态" width="90">
+        <el-table-column label="状态" width="78">
           <template #default="{ row }">
             <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
               {{ row.enabled ? '启用' : '禁用' }}
@@ -354,18 +357,18 @@ onMounted(loadProviders)</script>
         <el-table-column
           prop="timeout_seconds"
           label="超时"
-          width="90"
+          width="78"
         >
           <template #default="{ row }">{{ row.timeout_seconds }} 秒</template>
         </el-table-column>
-        <el-table-column label="连通性" width="170">
+        <el-table-column label="连通性" width="130">
           <template #default="{ row }">
             <el-tag :type="testResultType(testResults[row.id])" size="small">
               {{ testResultText(testResults[row.id]) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="canManage" label="操作" width="240" fixed="right">
+        <el-table-column v-if="canManage" label="操作" width="210">
           <template #default="{ row }">
             <el-button
               link
@@ -502,26 +505,33 @@ onMounted(loadProviders)</script>
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   max-width: 720px;
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
-  line-height: 1.6;
+  color: var(--gw-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .table-card {
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-lg);
+  box-shadow: var(--gw-shadow-card);
+}
+
+.table-card :deep(.el-card__body) {
+  padding: 22px 22px 18px;
 }
 
 .load-error {
@@ -546,7 +556,7 @@ onMounted(loadProviders)</script>
 
 .field-hint {
   margin-top: 6px;
-  color: #98a6b7;
+  color: var(--gw-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }

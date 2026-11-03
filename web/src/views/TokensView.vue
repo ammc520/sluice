@@ -29,7 +29,8 @@ const pageSize = ref(20)
 const loading = ref(false)
 const loadError = ref('')
 
-const employeeFilter = ref('')
+const initialQuery = new URLSearchParams(window.location.search)
+const employeeFilter = ref(initialQuery.get('employee_id') ?? '')
 const statusFilter = ref<number | ''>('')
 
 const dialogVisible = ref(false)
@@ -278,50 +279,51 @@ onMounted(() => {
       />
 
       <el-table v-loading="loading" :data="tokens" stripe>
-        <el-table-column label="员工" min-width="170">
+        <el-table-column label="员工" min-width="130">
           <template #default="{ row }">
             <div class="employee-cell">{{ employeeLabel(row.employee_id) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="Token" min-width="180">
+        <el-table-column label="Token" min-width="175">
           <template #default="{ row }">
             <code class="token-prefix">{{ row.token_prefix }}…{{ row.token_last4 }}</code>
           </template>
         </el-table-column>
         <el-table-column label="额度" width="140">
           <template #default="{ row }">
-            {{ quotaPeriodLabel(row.quota_period) }} · {{ quotaTypeLabel(row.quota_type) }}
+            <span class="nowrap">
+              {{ quotaPeriodLabel(row.quota_period) }} · {{ quotaTypeLabel(row.quota_type) }}
+            </span>
           </template>
         </el-table-column>
-        <el-table-column label="已用 / 总量" width="150">
+        <el-table-column label="已用 / 总量" width="120">
           <template #default="{ row }">{{ quotaUsedText(row) }}</template>
         </el-table-column>
-        <el-table-column prop="rate_limit_rpm" label="RPM" width="90" />
-        <el-table-column label="状态" width="90">
+        <el-table-column prop="rate_limit_rpm" label="RPM" width="55" />
+        <el-table-column label="状态" width="80">
           <template #default="{ row }">
             <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
               {{ row.status === 1 ? '正常' : '已撤销' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="过期时间" width="160">
+        <el-table-column label="过期时间" width="130">
           <template #default="{ row }">{{ formatDateTime(row.expires_at) }}</template>
         </el-table-column>
-        <el-table-column label="最后使用" width="160">
+        <el-table-column label="最后使用" width="130">
           <template #default="{ row }">{{ formatDateTime(row.last_used_at) }}</template>
         </el-table-column>
         <el-table-column
           v-if="canManage"
           label="操作"
-          width="160"
-          fixed="right"
+          width="140"
         >
           <template #default="{ row }">
-            <template v-if="row.status === 1">
+            <div v-if="row.status === 1" class="row-actions">
               <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
               <el-button link type="warning" @click="rotateToken(row)">轮换</el-button>
               <el-button link type="danger" @click="revokeToken(row)">撤销</el-button>
-            </template>
+            </div>
             <span v-else class="muted">—</span>
           </template>
         </el-table-column>
@@ -362,31 +364,40 @@ onMounted(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
+  color: var(--gw-text-muted);
+  font-size: 13px;
 }
 
 .table-card {
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-lg);
+  box-shadow: var(--gw-shadow-card);
+}
+
+.table-card :deep(.el-card__body) {
+  padding: 22px 22px 18px;
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #f0f4f9;
 }
 
 .employee-select {
@@ -403,13 +414,31 @@ onMounted(() => {
 
 .employee-cell {
   color: #26384d;
+  font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.row-actions :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 
 .token-prefix {
   color: #52657c;
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 .pagination-row {

@@ -1,11 +1,14 @@
 package adminapi
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,6 +23,7 @@ import (
 // ProviderHandler serves upstream provider administration endpoints.
 type ProviderHandler struct {
 	providers    store.ProviderStore
+	routes       store.RouteStore
 	cipher       *crypto.Cipher
 	client       *http.Client
 	routeRefresh func(context.Context)
@@ -27,11 +31,11 @@ type ProviderHandler struct {
 
 // NewProviderHandler creates the provider handler. refresh is called after any
 // mutation so the proxy resolver can reload routes and provider settings.
-func NewProviderHandler(providers store.ProviderStore, cipher *crypto.Cipher, client *http.Client, refresh func(context.Context)) *ProviderHandler {
+func NewProviderHandler(providers store.ProviderStore, routes store.RouteStore, cipher *crypto.Cipher, client *http.Client, refresh func(context.Context)) *ProviderHandler {
 	if client == nil {
 		client = netguard.NewClient(10*time.Second, 10*time.Second)
 	}
-	return &ProviderHandler{providers: providers, cipher: cipher, client: client, routeRefresh: refresh}
+	return &ProviderHandler{providers: providers, routes: routes, cipher: cipher, client: client, routeRefresh: refresh}
 }
 
 type providerDTO struct {
@@ -281,17 +285,17 @@ func (h *ProviderHandler) Test(c *gin.Context) {
 		return
 	}
 
+	if p.Protocol == "anthropic" {
+		h.testAnthropic(c, p, string(plain))
+		return
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL(p.BaseURL), nil)
 	if err != nil {
 		Fail(c, http.StatusBadRequest, "invalid_request", "invalid base_url")
 		return
 	}
-	if p.Protocol == "anthropic" {
-		req.Header.Set("x-api-key", string(plain))
-		req.Header.Set("anthropic-version", "2023-06-01")
-	} else {
-		req.Header.Set("Authorization", "Bearer "+string(plain))
-	}
+	req.Header.Set("Authorization", "Bearer "+string(plain))
 
 	resp, err := h.client.Do(req)
 	if err != nil {
@@ -317,6 +321,211 @@ func (h *ProviderHandler) Test(c *gin.Context) {
 		"status_code": resp.StatusCode,
 		"message":     message,
 	})
+}
+
+// testAnthropic exercises the Messages endpoint that the gateway actually
+// uses. Anthropic-compatible providers are not required to implement
+// GET /v1/models (DeepSeek's /anthropic endpoint returns 404), so probing the
+// models list produced false failures.
+func (h *ProviderHandler) testAnthropic(c *gin.Context, p *store.Provider, key string) {
+	ctx := c.Request.Context()
+	model := h.anthropicTestModel(ctx, p.ID)
+	if model == "" {
+		model = "claude-3-5-haiku-latest"
+	}
+	body, err := json.Marshal(map[string]any{
+		"model":      model,
+		"max_tokens": 1,
+		"messages": []map[string]string{
+			{"role": "user", "content": "ping"},
+		},
+	})
+	if err != nil {
+		InternalError(c)
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, messagesURL(p.BaseURL), bytes.NewReader(body))
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "invalid_request", "invalid base_url")
+		return
+	}
+	req.Header.Set("x-api-key", key)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		OK(c, http.StatusOK, gin.H{
+			"reachable": false,
+			"message":   "connection failed",
+		})
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+
+	reachable := true
+	message := ""
+	switch {
+	case resp.StatusCode >= 200 && resp.StatusCode < 300:
+	case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden:
+		message = "reachable, but the API key may be invalid"
+	case resp.StatusCode == http.StatusNotFound:
+		message = "reachable, but the messages endpoint was not found"
+	case resp.StatusCode == http.StatusBadRequest, resp.StatusCode == http.StatusUnprocessableEntity:
+		message = "reachable, but the test model was rejected"
+	case resp.StatusCode == http.StatusTooManyRequests:
+		message = "reachable, but rate limited"
+	case resp.StatusCode >= 500:
+		reachable = false
+		message = "upstream returned an unexpected status"
+	default:
+		reachable = false
+		message = "upstream returned an unexpected status"
+	}
+	OK(c, http.StatusOK, gin.H{
+		"reachable":   reachable,
+		"status_code": resp.StatusCode,
+		"message":     message,
+	})
+}
+
+// anthropicTestModel picks a literal model name from the provider's enabled
+// routes so the connectivity probe exercises a request the gateway can
+// actually send.
+func (h *ProviderHandler) anthropicTestModel(ctx context.Context, providerID uuid.UUID) string {
+	if h.routes == nil {
+		return ""
+	}
+	routes, err := h.routes.ListEnabled(ctx)
+	if err != nil {
+		return ""
+	}
+	sort.SliceStable(routes, func(i, j int) bool {
+		return routes[i].Priority < routes[j].Priority
+	})
+	for _, route := range routes {
+		if route.ProviderID != providerID || route.Protocol != "anthropic" {
+			continue
+		}
+		if route.UpstreamModel != nil {
+			if model := strings.TrimSpace(*route.UpstreamModel); model != "" {
+				return model
+			}
+		}
+		pattern := strings.TrimSpace(route.Pattern)
+		if pattern != "" && !strings.ContainsAny(pattern, "*?[") {
+			return pattern
+		}
+	}
+	return ""
+}
+
+// Models handles GET /admin/api/providers/:id/models. It asks the upstream for
+// its model list so administrators do not have to type names by hand. Some
+// Anthropic-compatible providers (for example DeepSeek's /anthropic endpoint)
+// do not implement the list endpoint; in that case the response is an empty
+// list plus an explanatory message rather than an error.
+func (h *ProviderHandler) Models(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	ctx := c.Request.Context()
+	p, err := h.providers.Get(ctx, id)
+	if err != nil {
+		writeStoreError(c, err, "provider not found", "provider name already exists", "invalid provider")
+		return
+	}
+	if h.cipher == nil {
+		InternalError(c)
+		return
+	}
+	plain, err := h.cipher.Open(p.APIKeyEnc, providerAAD(p.ID))
+	if err != nil {
+		InternalError(c)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL(p.BaseURL), nil)
+	if err != nil {
+		Fail(c, http.StatusBadRequest, "invalid_request", "invalid base_url")
+		return
+	}
+	if p.Protocol == "anthropic" {
+		req.Header.Set("x-api-key", string(plain))
+		req.Header.Set("anthropic-version", "2023-06-01")
+	} else {
+		req.Header.Set("Authorization", "Bearer "+string(plain))
+	}
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		Fail(c, http.StatusBadGateway, "upstream_unavailable", "Unable to reach upstream")
+		return
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+	if err != nil {
+		Fail(c, http.StatusBadGateway, "upstream_unavailable", "Unable to read upstream response")
+		return
+	}
+
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		OK(c, http.StatusOK, gin.H{
+			"items":   []string{},
+			"message": "reachable, but the API key may be invalid",
+		})
+		return
+	case resp.StatusCode == http.StatusNotFound:
+		OK(c, http.StatusOK, gin.H{
+			"items":   []string{},
+			"message": "this upstream does not expose a model list; enter the model name manually",
+		})
+		return
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		OK(c, http.StatusOK, gin.H{
+			"items":   []string{},
+			"message": "upstream returned an unexpected status",
+		})
+		return
+	}
+
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		OK(c, http.StatusOK, gin.H{
+			"items":   []string{},
+			"message": "upstream model list was not understood",
+		})
+		return
+	}
+	seen := make(map[string]bool, len(payload.Data))
+	items := make([]string, 0, len(payload.Data))
+	for _, model := range payload.Data {
+		name := strings.TrimSpace(model.ID)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		items = append(items, name)
+		if len(items) >= 500 {
+			break
+		}
+	}
+	OK(c, http.StatusOK, gin.H{"items": items})
+}
+
+func messagesURL(base string) string {
+	base = strings.TrimRight(base, "/")
+	if strings.HasSuffix(base, "/v1") {
+		return base + "/messages"
+	}
+	return base + "/v1/messages"
 }
 
 func modelsURL(base string) string {

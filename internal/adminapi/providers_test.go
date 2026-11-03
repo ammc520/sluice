@@ -2,6 +2,7 @@ package adminapi
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,6 +148,124 @@ func TestProviderConnectivityTest(t *testing.T) {
 	decodeData(t, rr, &result)
 	if result.Reachable || result.StatusCode != 500 {
 		t.Fatalf("failing result %+v", result)
+	}
+}
+
+func TestProviderAnthropicConnectivityUsesMessages(t *testing.T) {
+	type observed struct {
+		method string
+		path   string
+		key    string
+		model  string
+	}
+	seen := make(chan observed, 1)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		seen <- observed{
+			method: r.Method,
+			path:   r.URL.Path,
+			key:    r.Header.Get("x-api-key"),
+			model:  body.Model,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"type":"message"}`))
+	}))
+	defer upstream.Close()
+
+	env := newAdminEnv(t)
+	id := env.createProviderWithBase(t, "deepseek", "anthropic", upstream.URL+"/anthropic")
+	route := `{"provider_id":"` + id + `","protocol":"anthropic","pattern":"deepseek-flash","match_type":"prefix"}`
+	if rr := env.do("super_admin", http.MethodPost, "/admin/api/model-routes", route); rr.Code != http.StatusCreated {
+		t.Fatalf("create route: %d %s", rr.Code, rr.Body.String())
+	}
+
+	rr := env.do("super_admin", http.MethodPost, "/admin/api/providers/"+id+"/test", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("test: %d %s", rr.Code, rr.Body.String())
+	}
+	var result struct {
+		Reachable  bool `json:"reachable"`
+		StatusCode int  `json:"status_code"`
+	}
+	decodeData(t, rr, &result)
+	if !result.Reachable || result.StatusCode != http.StatusOK {
+		t.Fatalf("result %+v", result)
+	}
+
+	got := <-seen
+	if got.method != http.MethodPost || got.path != "/anthropic/v1/messages" {
+		t.Fatalf("probe request %+v", got)
+	}
+	if got.key != "sk-real-secret" || got.model != "deepseek-flash" {
+		t.Fatalf("probe auth/model %+v", got)
+	}
+}
+
+func TestProviderModelsFetchesUpstreamList(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/models" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("Authorization") != "Bearer sk-real-secret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-4o"},{"id":"gpt-4o-mini"},{"id":"gpt-4o"}]}`))
+	}))
+	defer upstream.Close()
+
+	env := newAdminEnv(t)
+	id := env.createProviderWithBase(t, "openai", "openai_compatible", upstream.URL)
+
+	rr := env.do("super_admin", http.MethodGet, "/admin/api/providers/"+id+"/models", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("models: %d %s", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "sk-real-secret") {
+		t.Fatal("models response leaked the provider key")
+	}
+	var result struct {
+		Items   []string `json:"items"`
+		Message string   `json:"message"`
+	}
+	decodeData(t, rr, &result)
+	if result.Message != "" {
+		t.Fatalf("message %q", result.Message)
+	}
+	if len(result.Items) != 2 || result.Items[0] != "gpt-4o" || result.Items[1] != "gpt-4o-mini" {
+		t.Fatalf("items %v", result.Items)
+	}
+}
+
+func TestProviderModelsReportsUnsupportedEndpoint(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer upstream.Close()
+
+	env := newAdminEnv(t)
+	id := env.createProviderWithBase(t, "deepseek", "anthropic", upstream.URL+"/anthropic")
+
+	rr := env.do("super_admin", http.MethodGet, "/admin/api/providers/"+id+"/models", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("models: %d %s", rr.Code, rr.Body.String())
+	}
+	var result struct {
+		Items   []string `json:"items"`
+		Message string   `json:"message"`
+	}
+	decodeData(t, rr, &result)
+	if len(result.Items) != 0 {
+		t.Fatalf("items %v", result.Items)
+	}
+	if !strings.Contains(result.Message, "does not expose") {
+		t.Fatalf("message %q", result.Message)
 	}
 }
 

@@ -41,14 +41,15 @@ type EmployeeFilter struct {
 
 // AuditFilter filters audit listings.
 type AuditFilter struct {
-	From       *time.Time
-	To         *time.Time
-	EmployeeID *uuid.UUID
-	StatusCode *int
-	DLPAction  string
-	Model      string
-	Cursor     string
-	Limit      int
+	From         *time.Time
+	To           *time.Time
+	EmployeeID   *uuid.UUID
+	DepartmentID *int64
+	StatusCode   *int
+	DLPAction    string
+	Model        string
+	Cursor       string
+	Limit        int
 }
 
 // EmployeeStore persists employees.
@@ -96,6 +97,16 @@ type DLPRuleStore interface {
 	ListEnabled(ctx context.Context) ([]DLPRule, error)
 	Update(ctx context.Context, r *DLPRule) error
 	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// DepartmentStore reads the department directory used by admin filters.
+type DepartmentStore interface {
+	List(ctx context.Context) ([]Department, error)
+}
+
+// DashboardStore serves the aggregated overview dashboard.
+type DashboardStore interface {
+	Summary(ctx context.Context, current, previous DashboardFilter, interval string, now time.Time) (DashboardData, error)
 }
 
 // AuditStore persists and queries audit records.

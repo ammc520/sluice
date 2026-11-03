@@ -540,7 +540,7 @@ onMounted(loadRules)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="canManage" label="操作" width="190" fixed="right">
+        <el-table-column v-if="canManage" label="操作" width="190">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link @click="toggleEnabled(row)">
@@ -900,21 +900,23 @@ onMounted(loadRules)
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   max-width: 760px;
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
-  line-height: 1.6;
+  color: var(--gw-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .heading-actions {
@@ -925,8 +927,14 @@ onMounted(loadRules)
 
 .table-card,
 .test-card {
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-lg);
+  box-shadow: var(--gw-shadow-card);
+}
+
+.table-card :deep(.el-card__body),
+.test-card :deep(.el-card__body) {
+  padding: 22px;
 }
 
 .test-card {
@@ -950,21 +958,22 @@ onMounted(loadRules)
 .rule-description {
   display: block;
   margin-top: 4px;
-  color: #98a6b7;
-  font-size: 12px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .test-heading h3 {
   margin: 0 0 6px;
-  color: #1f2d3d;
-  font-size: 16px;
+  color: var(--gw-text);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .test-heading p {
   margin: 0;
-  color: #98a6b7;
-  font-size: 12px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
 }
 
 .test-layout {
@@ -981,9 +990,9 @@ onMounted(loadRules)
 .test-output {
   min-height: 190px;
   padding: 16px;
-  border: 1px solid #e8edf4;
-  border-radius: 10px;
-  background: #f8fafc;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-md);
+  background: var(--gw-surface-subtle);
 }
 
 .result-heading,
@@ -991,7 +1000,7 @@ onMounted(loadRules)
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #52637a;
+  color: var(--gw-text-secondary);
   font-size: 13px;
   font-weight: 600;
 }
@@ -1003,7 +1012,7 @@ onMounted(loadRules)
 .no-hits,
 .result-placeholder {
   margin-top: 14px;
-  color: #98a6b7;
+  color: var(--gw-text-muted);
   font-size: 13px;
   line-height: 1.7;
 }
@@ -1023,7 +1032,7 @@ onMounted(loadRules)
 }
 
 .hit-meta {
-  color: #98a6b7;
+  color: var(--gw-text-muted);
   font-size: 12px;
 }
 
@@ -1054,8 +1063,8 @@ onMounted(loadRules)
 
 .field-hint {
   margin-top: 6px;
-  color: #98a6b7;
-  font-size: 12px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
   line-height: 1.5;
 }
 

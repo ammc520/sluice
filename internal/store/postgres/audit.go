@@ -102,6 +102,9 @@ func (s *AuditStore) List(ctx context.Context, f store.AuditFilter) ([]*store.Au
 	if f.EmployeeID != nil {
 		where += " AND employee_id = " + add(*f.EmployeeID)
 	}
+	if f.DepartmentID != nil {
+		where += " AND department_id = " + add(*f.DepartmentID)
+	}
 	if f.StatusCode != nil {
 		where += " AND status_code = " + add(*f.StatusCode)
 	}

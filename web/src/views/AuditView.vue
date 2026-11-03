@@ -9,30 +9,66 @@ import type {
   AuditListResponse,
   AuditLog,
   AuditRevealResult,
+  Department,
   Employee,
   PageResponse,
 } from '../api/types'
 import { useAuthStore } from '../stores/auth'
-import { formatDateTime, shanghaiDateDaysAgo } from '../utils/datetime'
+import {
+  formatDateTime,
+  shanghaiDateDaysAgo,
+  toShanghaiDate,
+} from '../utils/datetime'
 
 type DLPActionFilter = '' | 'none' | 'block' | 'mask' | 'audit'
+
+function queryDate(value: string | null): string {
+  if (!value) return ''
+  return value.length === 10 ? value : toShanghaiDate(value)
+}
+
+function queryStatus(value: string | null): number | undefined {
+  if (!value) return undefined
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= 100 && parsed <= 599
+    ? parsed
+    : undefined
+}
+
+function queryDLPAction(value: string | null): DLPActionFilter {
+  return value === 'none' || value === 'block' || value === 'mask' || value === 'audit'
+    ? value
+    : ''
+}
+
+const initialQuery = new URLSearchParams(window.location.search)
+const initialFrom = queryDate(initialQuery.get('from'))
+const initialTo = queryDate(initialQuery.get('to'))
+const initialAuditID = Number(initialQuery.get('audit_id'))
 
 const auth = useAuthStore()
 const canReveal = computed(() => auth.isSuperAdmin)
 
 const employees = ref<Employee[]>([])
+const departments = ref<Department[]>([])
 const employeeMap = computed(
   () => new Map(employees.value.map((employee) => [employee.id, employee])),
 )
 
-const dateRange = ref<[string, string] | null>([
-  shanghaiDateDaysAgo(6),
-  shanghaiDateDaysAgo(0),
-])
-const employeeFilter = ref('')
-const statusCode = ref<number | undefined>(undefined)
-const dlpAction = ref<DLPActionFilter>('')
-const modelFilter = ref('')
+const dateRange = ref<[string, string] | null>(
+  initialFrom && initialTo
+    ? [initialFrom, initialTo]
+    : [shanghaiDateDaysAgo(6), shanghaiDateDaysAgo(0)],
+)
+const employeeFilter = ref(initialQuery.get('employee_id') ?? '')
+const departmentFilter = ref(initialQuery.get('department_id') ?? '')
+const statusCode = ref<number | undefined>(
+  queryStatus(initialQuery.get('status_code')),
+)
+const dlpAction = ref<DLPActionFilter>(
+  queryDLPAction(initialQuery.get('dlp_action')),
+)
+const modelFilter = ref(initialQuery.get('model') ?? '')
 
 const items = ref<AuditLog[]>([])
 const nextCursor = ref('')
@@ -102,12 +138,22 @@ async function loadEmployees(): Promise<void> {
   }
 }
 
+async function loadDepartments(): Promise<void> {
+  try {
+    const response = await api.get<{ items: Department[] }>('/departments')
+    departments.value = response.items
+  } catch (error) {
+    ElMessage.warning(apiErrorMessage(error, '部门列表加载失败'))
+  }
+}
+
 function buildQuery(cursor = ''): string {
   const params = new URLSearchParams()
   params.set('limit', '50')
   if (dateRange.value?.[0]) params.set('from', dateRange.value[0])
   if (dateRange.value?.[1]) params.set('to', dateRange.value[1])
   if (employeeFilter.value) params.set('employee_id', employeeFilter.value)
+  if (departmentFilter.value) params.set('department_id', departmentFilter.value)
   if (statusCode.value !== undefined && statusCode.value !== null) {
     params.set('status_code', String(statusCode.value))
   }
@@ -117,6 +163,26 @@ function buildQuery(cursor = ''): string {
   }
   if (cursor) params.set('cursor', cursor)
   return params.toString()
+}
+
+function persistFilters(): void {
+  const params = new URLSearchParams()
+  if (dateRange.value?.[0]) params.set('from', dateRange.value[0])
+  if (dateRange.value?.[1]) params.set('to', dateRange.value[1])
+  if (employeeFilter.value) params.set('employee_id', employeeFilter.value)
+  if (departmentFilter.value) {
+    params.set('department_id', departmentFilter.value)
+  }
+  if (statusCode.value !== undefined && statusCode.value !== null) {
+    params.set('status_code', String(statusCode.value))
+  }
+  if (dlpAction.value) params.set('dlp_action', dlpAction.value)
+  if (modelFilter.value.trim()) {
+    params.set('model', modelFilter.value.trim())
+  }
+  const query = params.toString()
+  const url = `${window.location.pathname}${query ? `?${query}` : ''}`
+  window.history.replaceState(window.history.state, '', url)
 }
 
 async function loadAudit(append = false): Promise<void> {
@@ -140,12 +206,14 @@ async function loadAudit(append = false): Promise<void> {
 
 function search(): void {
   nextCursor.value = ''
+  persistFilters()
   void loadAudit(false)
 }
 
 function resetFilters(): void {
   dateRange.value = [shanghaiDateDaysAgo(6), shanghaiDateDaysAgo(0)]
   employeeFilter.value = ''
+  departmentFilter.value = ''
   statusCode.value = undefined
   dlpAction.value = ''
   modelFilter.value = ''
@@ -156,7 +224,7 @@ function loadMore(): void {
   void loadAudit(true)
 }
 
-async function openDetail(row: AuditLog): Promise<void> {
+async function openDetail(row: Pick<AuditLog, 'id'>): Promise<void> {
   detailVisible.value = true
   detailLoading.value = true
   detailError.value = ''
@@ -221,9 +289,12 @@ async function confirmReveal(): Promise<void> {
   }
 }
 
-onMounted(() => {
-  void loadEmployees()
-  void loadAudit(false)
+onMounted(async () => {
+  await Promise.all([loadEmployees(), loadDepartments()])
+  await loadAudit(false)
+  if (Number.isInteger(initialAuditID) && initialAuditID > 0) {
+    await openDetail({ id: initialAuditID })
+  }
 })
 </script>
 
@@ -253,7 +324,7 @@ onMounted(() => {
           clearable
           filterable
           placeholder="全部员工"
-          class="filter-select"
+          class="filter-select employee-filter"
         >
           <el-option
             v-for="employee in employees"
@@ -266,7 +337,28 @@ onMounted(() => {
           v-else
           disabled
           placeholder="暂无员工"
-          class="filter-select"
+          class="filter-select employee-filter"
+        />
+        <el-select
+          v-if="departments.length > 0"
+          v-model="departmentFilter"
+          clearable
+          filterable
+          placeholder="全部部门"
+          class="filter-select department-filter"
+        >
+          <el-option
+            v-for="department in departments"
+            :key="department.id"
+            :label="department.name"
+            :value="String(department.id)"
+          />
+        </el-select>
+        <el-input
+          v-else
+          disabled
+          placeholder="暂无部门"
+          class="filter-select department-filter"
         />
         <el-input-number
           v-model="statusCode"
@@ -279,7 +371,7 @@ onMounted(() => {
         <el-select
           v-model="dlpAction"
           placeholder="全部 DLP 动作"
-          class="filter-select"
+          class="filter-select dlp-filter"
         >
           <el-option label="全部 DLP 动作" value="" />
           <el-option label="无命中" value="none" />
@@ -294,10 +386,12 @@ onMounted(() => {
           class="model-input"
           @keyup.enter="search"
         />
-        <el-button type="primary" :icon="Search" @click="search">
-          查询
-        </el-button>
-        <el-button :icon="Refresh" @click="resetFilters">重置</el-button>
+        <div class="filter-actions">
+          <el-button type="primary" :icon="Search" @click="search">
+            查询
+          </el-button>
+          <el-button :icon="Refresh" @click="resetFilters">重置</el-button>
+        </div>
       </div>
     </el-card>
 
@@ -312,29 +406,29 @@ onMounted(() => {
       />
 
       <el-table v-loading="loading" :data="items" stripe>
-        <el-table-column label="时间" width="155">
+        <el-table-column label="时间" width="148">
           <template #default="{ row }">{{ formatDateTime(row.event_time) }}</template>
         </el-table-column>
-        <el-table-column label="员工" min-width="150">
+        <el-table-column label="员工" min-width="128">
           <template #default="{ row }">{{ employeeLabel(row.employee_id) }}</template>
         </el-table-column>
-        <el-table-column prop="model" label="模型" min-width="130">
+        <el-table-column prop="model" label="模型" min-width="112">
           <template #default="{ row }">{{ row.model || '—' }}</template>
         </el-table-column>
-        <el-table-column label="请求" min-width="190">
+        <el-table-column label="请求" min-width="170">
           <template #default="{ row }">
             <span class="method">{{ row.method }}</span>
             <span class="path">{{ row.path }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态码" width="90">
+        <el-table-column label="状态码" width="76">
           <template #default="{ row }">
             <el-tag :type="statusTagType(row.status_code)" size="small">
               {{ row.status_code }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="DLP" width="90">
+        <el-table-column label="DLP" width="76">
           <template #default="{ row }">
             <el-tag
               v-if="row.dlp_action && row.dlp_action !== 'none'"
@@ -346,15 +440,12 @@ onMounted(() => {
             <span v-else class="muted">无</span>
           </template>
         </el-table-column>
-        <el-table-column label="Token" width="100" align="right">
+        <el-table-column label="Token" width="84" align="right">
           <template #default="{ row }">
             {{ row.total_tokens.toLocaleString('zh-CN') }}
           </template>
         </el-table-column>
-        <el-table-column label="耗时" width="90" align="right">
-          <template #default="{ row }">{{ row.latency_ms }} ms</template>
-        </el-table-column>
-        <el-table-column label="操作" width="170" fixed="right">
+        <el-table-column label="操作" width="132" align="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">
               详情
@@ -549,25 +640,33 @@ onMounted(() => {
 
 <style scoped>
 .page-heading {
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
+  color: var(--gw-text-muted);
+  font-size: 13px;
 }
 
 .filter-card,
 .table-card {
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-lg);
+  box-shadow: var(--gw-shadow-card);
+}
+
+.filter-card :deep(.el-card__body),
+.table-card :deep(.el-card__body) {
+  padding: 20px 22px;
 }
 
 .filter-card {
@@ -575,25 +674,47 @@ onMounted(() => {
 }
 
 .filter-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 10px;
+  align-items: center;
 }
 
-.date-range {
-  width: 260px;
+.filter-grid :deep(.date-range) {
+  grid-column: span 3;
+  width: 100%;
 }
 
-.filter-select {
-  width: 190px;
+.employee-filter {
+  grid-column: span 3;
+  width: 100%;
+}
+
+.department-filter {
+  grid-column: span 2;
+  width: 100%;
 }
 
 .status-input {
-  width: 110px;
+  grid-column: span 2;
+  width: 100%;
+}
+
+.dlp-filter {
+  grid-column: span 2;
+  width: 100%;
 }
 
 .model-input {
-  width: 170px;
+  grid-column: span 4;
+  width: 100%;
+}
+
+.filter-actions {
+  display: flex;
+  grid-column: span 8;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .load-error {
@@ -602,22 +723,23 @@ onMounted(() => {
 
 .method {
   margin-right: 8px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: #eef2f7;
-  color: #52637a;
-  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #eef3fa;
+  color: var(--gw-text-secondary);
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .path {
-  color: #52637a;
-  font-size: 12px;
+  color: var(--gw-text-secondary);
+  font-size: 11px;
   word-break: break-all;
 }
 
 .muted {
-  color: #98a6b7;
-  font-size: 12px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
 }
 
 .load-more {
@@ -637,8 +759,9 @@ onMounted(() => {
 .detail-section h4,
 .reveal-section h4 {
   margin: 0 0 10px;
-  color: #334155;
-  font-size: 14px;
+  color: #33415c;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .hit-tags {
@@ -658,9 +781,9 @@ onMounted(() => {
 .reveal-text {
   max-height: 240px;
   margin: 0;
-  padding: 12px;
+  padding: 14px;
   overflow: auto;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #16212f;
   color: #d8e4f2;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
@@ -675,11 +798,45 @@ code {
   font-size: 12px;
 }
 
-@media (max-width: 900px) {
-  .date-range,
-  .filter-select,
+@media (max-width: 1180px) {
+  .filter-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  .filter-grid :deep(.date-range),
+  .employee-filter,
   .model-input {
-    width: 100%;
+    grid-column: span 3;
+  }
+
+  .department-filter,
+  .status-input,
+  .dlp-filter {
+    grid-column: span 2;
+  }
+
+  .filter-actions {
+    grid-column: span 6;
+  }
+}
+
+@media (max-width: 720px) {
+  .filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-grid :deep(.date-range),
+  .employee-filter,
+  .department-filter,
+  .status-input,
+  .dlp-filter,
+  .model-input,
+  .filter-actions {
+    grid-column: span 1;
+  }
+
+  .filter-actions .el-button {
+    flex: 1;
   }
 }
 </style>

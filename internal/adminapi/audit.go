@@ -175,6 +175,15 @@ func (h *AuditHandler) List(c *gin.Context) {
 	}
 	filter.EmployeeID = employeeID
 
+	if raw := strings.TrimSpace(c.Query("department_id")); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			BadRequest(c, "invalid department_id")
+			return
+		}
+		filter.DepartmentID = &id
+	}
+
 	if raw := strings.TrimSpace(c.Query("status_code")); raw != "" {
 		code, err := strconv.Atoi(raw)
 		if err != nil || code < 100 || code > 599 {

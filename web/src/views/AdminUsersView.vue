@@ -357,7 +357,7 @@ onMounted(loadUsers)
             {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
+        <el-table-column label="操作" width="240">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">
               编辑
@@ -563,24 +563,31 @@ onMounted(loadUsers)
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
+  color: var(--gw-text-muted);
+  font-size: 13px;
 }
 
 .table-card {
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-lg);
+  box-shadow: var(--gw-shadow-card);
+}
+
+.table-card :deep(.el-card__body) {
+  padding: 22px 22px 18px;
 }
 
 .load-error {
@@ -591,6 +598,8 @@ onMounted(loadUsers)
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #33415c;
+  font-weight: 500;
 }
 
 .form-grid {

@@ -4,16 +4,7 @@ import type { RouteRecordRaw } from 'vue-router'
 import AdminLayout from '../layouts/AdminLayout.vue'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
-import AdminUsersView from '../views/AdminUsersView.vue'
-import AuditView from '../views/AuditView.vue'
-import DashboardView from '../views/DashboardView.vue'
-import DLPRulesView from '../views/DLPRulesView.vue'
-import EmployeesView from '../views/EmployeesView.vue'
 import LoginView from '../views/LoginView.vue'
-import ModelRoutesView from '../views/ModelRoutesView.vue'
-import ProvidersView from '../views/ProvidersView.vue'
-import SettingsView from '../views/SettingsView.vue'
-import TokensView from '../views/TokensView.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -30,48 +21,48 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'dashboard',
         name: 'dashboard',
-        component: DashboardView,
+        component: () => import('../views/DashboardView.vue'),
       },
       {
         path: 'employees',
         name: 'employees',
-        component: EmployeesView,
+        component: () => import('../views/EmployeesView.vue'),
       },
       {
         path: 'tokens',
         name: 'tokens',
-        component: TokensView,
+        component: () => import('../views/TokensView.vue'),
       },
       {
         path: 'providers',
         name: 'providers',
-        component: ProvidersView,
+        component: () => import('../views/ProvidersView.vue'),
       },
       {
         path: 'model-routes',
         name: 'model-routes',
-        component: ModelRoutesView,
+        component: () => import('../views/ModelRoutesView.vue'),
       },
       {
         path: 'dlp-rules',
         name: 'dlp-rules',
-        component: DLPRulesView,
+        component: () => import('../views/DLPRulesView.vue'),
       },
       {
         path: 'audit',
         name: 'audit',
-        component: AuditView,
+        component: () => import('../views/AuditView.vue'),
       },
       {
         path: 'settings',
         name: 'settings',
-        component: SettingsView,
+        component: () => import('../views/SettingsView.vue'),
         meta: { superOnly: true },
       },
       {
         path: 'admin-users',
         name: 'admin-users',
-        component: AdminUsersView,
+        component: () => import('../views/AdminUsersView.vue'),
         meta: { superOnly: true },
       },
     ],

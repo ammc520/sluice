@@ -338,15 +338,15 @@ async function copyToken(): Promise<void> {
   gap: 12px;
   margin-top: 18px;
   padding: 16px;
-  border: 1px solid #d9e2ec;
-  border-radius: 10px;
-  background: #f7f9fc;
+  border: 1px solid #d9e5f8;
+  border-radius: var(--gw-radius-md);
+  background: #f6f9ff;
 }
 
 .token-box code {
   flex: 1;
   min-width: 0;
-  color: #1f2d3d;
+  color: var(--gw-text);
   font-family: ui-monospace, Consolas, monospace;
   font-size: 13px;
   overflow-wrap: anywhere;
@@ -355,8 +355,8 @@ async function copyToken(): Promise<void> {
 
 .dialog-hint {
   margin: 14px 0 0;
-  color: #8a99ab;
-  font-size: 12px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
   line-height: 1.6;
 }
 

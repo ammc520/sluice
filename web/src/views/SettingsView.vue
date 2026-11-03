@@ -289,13 +289,15 @@ onMounted(() => {
             </el-form-item>
 
             <el-form-item label="连接加密">
-              <el-switch
-                v-model="smtpForm.use_tls"
-                active-text="使用 TLS"
-                inactive-text="明文"
-              />
-              <div class="field-hint">
-                建议始终启用 TLS。修改服务器或用户名后需要重新输入密码。
+              <div class="switch-field">
+                <el-switch
+                  v-model="smtpForm.use_tls"
+                  active-text="使用 TLS"
+                  inactive-text="明文"
+                />
+                <div class="field-hint">
+                  建议始终启用 TLS。修改服务器或用户名后需要重新输入密码。
+                </div>
               </div>
             </el-form-item>
 
@@ -391,25 +393,32 @@ onMounted(() => {
 
 <style scoped>
 .page-heading {
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
+  color: var(--gw-text-muted);
+  font-size: 13px;
 }
 
 .settings-card {
   margin-bottom: 18px;
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-lg);
+  box-shadow: var(--gw-shadow-card);
+}
+
+.settings-card :deep(.el-card__body) {
+  padding: 22px;
 }
 
 .card-heading {
@@ -422,14 +431,15 @@ onMounted(() => {
 
 .card-heading h3 {
   margin: 0 0 6px;
-  color: #1f2d3d;
-  font-size: 16px;
+  color: var(--gw-text);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .card-heading p {
   margin: 0;
-  color: #98a6b7;
-  font-size: 12px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
   line-height: 1.6;
 }
 
@@ -443,10 +453,20 @@ onMounted(() => {
   width: 100%;
 }
 
+.switch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.switch-field .field-hint {
+  margin-top: 0;
+}
+
 .field-hint {
   margin-top: 6px;
-  color: #98a6b7;
-  font-size: 12px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
   line-height: 1.5;
 }
 

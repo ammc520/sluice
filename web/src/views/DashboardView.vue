@@ -1,191 +1,288 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
-import * as echarts from 'echarts/core'
-import { LineChart } from 'echarts/charts'
 import {
-  GridComponent,
-  TooltipComponent,
-} from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
-import type { EChartsCoreOption } from 'echarts/core'
+  Coin,
+  Lock,
+  Refresh,
+  Timer,
+  TrendCharts,
+  User,
+  WarningFilled,
+} from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 
 import { api } from '../api/client'
 import { apiErrorMessage } from '../api/errors'
 import type {
-  DLPStat,
-  DashboardOverview,
-  TopUser,
-  TrendPoint,
-  TrendResponse,
+  DashboardIncident,
+  DashboardRange,
+  Department,
+  Provider,
 } from '../api/types'
+import BreakdownPanel from '../components/dashboard/BreakdownPanel.vue'
+import DLPPanel from '../components/dashboard/DLPPanel.vue'
+import IncidentFeed from '../components/dashboard/IncidentFeed.vue'
+import MetricCard from '../components/dashboard/MetricCard.vue'
+import QuotaPressurePanel from '../components/dashboard/QuotaPressurePanel.vue'
+import TopUsersTable from '../components/dashboard/TopUsersTable.vue'
+import TrendPanel from '../components/dashboard/TrendPanel.vue'
+import type { TrendMetric } from '../components/dashboard/TrendPanel.vue'
+import {
+  useDashboard,
+  type DashboardFilters,
+} from '../composables/useDashboard'
+import { formatDateTime, toShanghaiDate } from '../utils/datetime'
+import {
+  formatClock,
+  formatDuration,
+  formatNumber,
+  formatPercent,
+} from '../utils/format'
 
-echarts.use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
+const router = useRouter()
 
-const rangeDays = ref(7)
-const rangeOptions = [
-  { label: '近 24 小时', value: 1 },
-  { label: '近 7 天', value: 7 },
-  { label: '近 30 天', value: 30 },
+const rangeOptions: Array<{ label: string; value: DashboardRange }> = [
+  { label: '今日', value: 'today' },
+  { label: '近 24 小时', value: '24h' },
+  { label: '近 7 天', value: '7d' },
+  { label: '近 30 天', value: '30d' },
 ]
-
-const overview = ref<DashboardOverview | null>(null)
-const trendItems = ref<TrendPoint[]>([])
-const topUsers = ref<TopUser[]>([])
-const dlpStats = ref<DLPStat[]>([])
-const loading = ref(false)
-const loadError = ref('')
-
-const chartEl = ref<HTMLDivElement | null>(null)
-let chart: ReturnType<typeof echarts.init> | null = null
-
-const numberFormat = new Intl.NumberFormat('zh-CN')
-
-const cards = computed(() => [
-  {
-    label: '调用量',
-    value: numberFormat.format(overview.value?.total_calls ?? 0),
-    hint: `错误 ${numberFormat.format(overview.value?.error_calls ?? 0)} 次`,
-  },
-  {
-    label: 'Token 消耗',
-    value: numberFormat.format(overview.value?.total_tokens ?? 0),
-    hint: '输入与输出合计',
-  },
-  {
-    label: '活跃员工',
-    value: numberFormat.format(overview.value?.active_users ?? 0),
-    hint: '产生调用的员工数',
-  },
-  {
-    label: 'DLP 命中',
-    value: numberFormat.format(overview.value?.dlp_hits ?? 0),
-    hint: `错误率 ${((overview.value?.error_rate ?? 0) * 100).toFixed(2)}%`,
-  },
+const rangeValues = new Set<DashboardRange>([
+  'today',
+  '24h',
+  '7d',
+  '30d',
 ])
 
-const actionLabels: Record<string, string> = {
-  block: '阻断',
-  mask: '脱敏',
-  audit: '审计',
+function initialFilters(): DashboardFilters {
+  const params = new URLSearchParams(window.location.search)
+  const rawRange = params.get('range') as DashboardRange | null
+  const rawDepartment = Number(params.get('department_id') ?? '')
+  return {
+    range:
+      rawRange && rangeValues.has(rawRange)
+        ? rawRange
+        : '24h',
+    departmentId:
+      Number.isInteger(rawDepartment) && rawDepartment > 0
+        ? rawDepartment
+        : null,
+    providerId: params.get('provider_id') ?? '',
+  }
 }
 
-const actionTagTypes: Record<string, 'danger' | 'warning' | 'info'> = {
-  block: 'danger',
-  mask: 'warning',
-  audit: 'info',
+const {
+  range,
+  departmentId,
+  providerId,
+  data,
+  loading,
+  refreshing,
+  error,
+  lastUpdated,
+  refresh,
+} = useDashboard(initialFilters())
+
+const departments = ref<Department[]>([])
+const providers = ref<Provider[]>([])
+const trendMetric = ref<TrendMetric>('requests')
+
+const cardMeta = [
+  { icon: TrendCharts, tone: 'primary' as const },
+  { icon: Coin, tone: 'primary' as const },
+  { icon: User, tone: 'success' as const },
+  { icon: WarningFilled, tone: 'danger' as const },
+  { icon: Lock, tone: 'warning' as const },
+  { icon: Timer, tone: 'info' as const },
+]
+
+const departmentModel = computed<number | ''>({
+  get: () => departmentId.value ?? '',
+  set: (value) => {
+    departmentId.value = value === '' ? null : Number(value)
+  },
+})
+
+const providerModel = computed<string>({
+  get: () => providerId.value,
+  set: (value) => {
+    providerId.value = value
+  },
+})
+
+function persistFilters(): void {
+  const params = new URLSearchParams(window.location.search)
+  params.set('range', range.value)
+  if (departmentId.value !== null) {
+    params.set('department_id', String(departmentId.value))
+  } else {
+    params.delete('department_id')
+  }
+  if (providerId.value) params.set('provider_id', providerId.value)
+  else params.delete('provider_id')
+  const query = params.toString()
+  const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`
+  window.history.replaceState(window.history.state, '', url)
 }
 
-function rangeQuery(): string {
-  const to = new Date()
-  const from = new Date(to.getTime() - rangeDays.value * 24 * 60 * 60 * 1000)
-  return `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`
-}
+watch([range, departmentId, providerId], persistFilters)
 
-async function loadDashboard(): Promise<void> {
-  loading.value = true
-  loadError.value = ''
+async function loadLookups(): Promise<void> {
   try {
-    const query = rangeQuery()
-    const [overviewData, trendData, topData, dlpData] = await Promise.all([
-      api.get<DashboardOverview>(`/dashboard/overview?${query}`),
-      api.get<TrendResponse>(`/dashboard/trend?interval=day&${query}`),
-      api.get<{ items: TopUser[] }>(
-        `/dashboard/top-users?limit=10&${query}`,
-      ),
-      api.get<{ items: DLPStat[] }>(`/dashboard/dlp?${query}`),
+    const [departmentResult, providerResult] = await Promise.all([
+      api.get<{ items: Department[] }>('/departments'),
+      api.get<{ items: Provider[] }>('/providers'),
     ])
-    overview.value = overviewData
-    trendItems.value = trendData.items
-    topUsers.value = topData.items
-    dlpStats.value = dlpData.items
-    await nextTick()
-    renderChart()
-  } catch (error) {
-    loadError.value = apiErrorMessage(error, '概览数据加载失败')
-  } finally {
-    loading.value = false
+    departments.value = departmentResult.items
+    providers.value = providerResult.items
+  } catch (err) {
+    ElMessage.warning(apiErrorMessage(err, '筛选条件加载失败'))
   }
 }
 
-function renderChart(): void {
-  if (!chartEl.value) return
-  if (!chart) {
-    chart = echarts.init(chartEl.value)
+const cards = computed(() => {
+  const kpis = data.value?.kpis
+  if (!kpis) {
+    return [
+      '请求量',
+      'Token 消耗',
+      '活跃员工',
+      '错误率',
+      'DLP 风险',
+      'P95 延迟',
+    ].map((label, index) => ({
+      label,
+      value: '—',
+      hint: '正在加载',
+      delta: undefined,
+      deltaKind: 'pct' as const,
+      direction: 'none' as const,
+      ...cardMeta[index]!,
+    }))
   }
-  const option: EChartsCoreOption = {
-    color: ['#409eff'],
-    tooltip: {
-      trigger: 'axis',
+  const items = [
+    {
+      label: '请求量',
+      value: formatNumber(kpis.requests.value),
+      hint: `错误 ${formatNumber(Math.round(kpis.error_rate.value * kpis.requests.value))} · 断开 ${formatNumber(kpis.client_disconnects.value)}`,
+      delta: kpis.requests.delta_pct,
+      deltaKind: 'pct' as const,
+      direction: 'none' as const,
     },
-    grid: {
-      left: 48,
-      right: 24,
-      top: 24,
-      bottom: 32,
+    {
+      label: 'Token 消耗',
+      value: formatNumber(kpis.tokens.value),
+      hint: `输入 ${formatNumber(kpis.prompt_tokens.value)} · 输出 ${formatNumber(kpis.completion_tokens.value)}`,
+      delta: kpis.tokens.delta_pct,
+      deltaKind: 'pct' as const,
+      direction: 'none' as const,
     },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: trendItems.value.map((point) => point.day.slice(5)),
-      axisLine: { lineStyle: { color: '#dfe7f1' } },
-      axisLabel: { color: '#8393a7' },
+    {
+      label: '活跃员工',
+      value: formatNumber(kpis.active_users.value),
+      hint: '产生调用的员工数',
+      delta: kpis.active_users.delta_pct,
+      deltaKind: 'pct' as const,
+      direction: 'up' as const,
     },
-    yAxis: {
-      type: 'value',
-      minInterval: 1,
-      axisLabel: { color: '#8393a7' },
-      splitLine: { lineStyle: { color: '#eef2f7' } },
+    {
+      label: '错误率',
+      value: formatPercent(kpis.error_rate.value, 2),
+      hint: '不含客户端断开（499）',
+      delta: kpis.error_rate.delta_pp,
+      deltaKind: 'pp' as const,
+      direction: 'down' as const,
     },
-    series: [
-      {
-        name: '调用量',
-        type: 'line',
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 6,
-        data: trendItems.value.map((point) => point.calls),
-        lineStyle: { width: 2 },
-        areaStyle: { opacity: 0.12 },
-      },
-    ],
-  }
-  chart.setOption(option, true)
-}
-
-function resizeChart(): void {
-  chart?.resize()
-}
-
-function changeRange(value: number): void {
-  rangeDays.value = value
-  void loadDashboard()
-}
-
-function employeeLabel(user: TopUser): string {
-  return user.name || user.employee_id.slice(0, 8)
-}
-
-function refresh(): void {
-  void loadDashboard()
-  ElMessage.success('正在刷新概览数据')
-}
-
-watch(trendItems, async () => {
-  await nextTick()
-  renderChart()
+    {
+      label: 'DLP 风险',
+      value: formatNumber(kpis.dlp_requests.value),
+      hint: `命中 ${formatNumber(kpis.dlp_requests.value ? data.value?.dlp.hits ?? 0 : 0)} 次`,
+      delta: kpis.dlp_requests.delta_pct,
+      deltaKind: 'pct' as const,
+      direction: 'down' as const,
+    },
+    {
+      label: 'P95 延迟',
+      value:
+        kpis.requests.value > 0
+          ? formatDuration(kpis.p95_latency_ms.value)
+          : '—',
+      hint: '受流式响应影响，仅供参考',
+      delta: kpis.p95_latency_ms.delta_pct,
+      deltaKind: 'pct' as const,
+      direction: 'down' as const,
+    },
+  ]
+  return items.map((item, index) => ({ ...item, ...cardMeta[index]! }))
 })
 
-onMounted(async () => {
-  await loadDashboard()
-  window.addEventListener('resize', resizeChart)
-})
+const providerRows = computed(() =>
+  (data.value?.breakdown.providers ?? []).map((item) => ({
+    key: item.id || 'no-upstream',
+    label: item.id ? item.name || '未命名上游' : '未调用上游',
+    value: item.requests,
+    tokens: item.tokens,
+    errors: item.errors,
+    latencyMs: item.p95_latency_ms,
+  })),
+)
 
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', resizeChart)
-  chart?.dispose()
-  chart = null
+const modelRows = computed(() =>
+  (data.value?.breakdown.models ?? []).map((item) => ({
+    key: item.model || 'unspecified',
+    label:
+      item.model && item.model !== '未知' ? item.model : '未指定模型',
+    value: item.requests,
+    tokens: item.tokens,
+  })),
+)
+
+const lastUpdatedLabel = computed(() =>
+  lastUpdated.value ? formatClock(lastUpdated.value) : '—',
+)
+
+async function manualRefresh(): Promise<void> {
+  await refresh()
+  if (!error.value) ElMessage.success('概览数据已刷新')
+}
+
+function auditQuery(extra: Record<string, string>): Record<string, string> {
+  const query: Record<string, string> = {}
+  const summaryRange = data.value?.range
+  if (summaryRange) {
+    query.from = toShanghaiDate(summaryRange.from)
+    query.to = toShanghaiDate(summaryRange.to)
+  }
+  for (const [key, value] of Object.entries(extra)) {
+    if (value) query[key] = value
+  }
+  return query
+}
+
+function openEmployeeAudit(employeeId: string): void {
+  void router.push({
+    path: '/audit',
+    query: auditQuery({ employee_id: employeeId }),
+  })
+}
+
+function openTokens(employeeId: string): void {
+  void router.push({ path: '/tokens', query: { employee_id: employeeId } })
+}
+
+function openIncident(incident: DashboardIncident): void {
+  void router.push({
+    path: '/audit',
+    query: auditQuery({
+      employee_id: incident.employee_id,
+      audit_id: String(incident.id),
+    }),
+  })
+}
+
+onMounted(() => {
+  void loadLookups()
 })
 </script>
 
@@ -193,15 +290,29 @@ onBeforeUnmount(() => {
   <div class="dashboard-page">
     <section class="page-heading">
       <div>
+        <span class="heading-eyebrow">运行监控</span>
         <h2>运行概览</h2>
-        <p>集中查看 API 调用量、Token 消耗与数据安全事件。</p>
+        <p>集中查看 API 调用、Token 消耗、DLP 风险与配额压力。</p>
       </div>
       <div class="heading-actions">
-        <el-radio-group
-          :model-value="rangeDays"
-          size="small"
-          @change="changeRange"
+        <span class="refresh-hint">
+          <span class="refresh-dot" />
+          每 60 秒自动刷新 · 更新于 {{ lastUpdatedLabel }}
+        </span>
+        <el-button
+          :icon="Refresh"
+          :loading="loading || refreshing"
+          @click="manualRefresh"
         >
+          刷新
+        </el-button>
+      </div>
+    </section>
+
+    <section class="filter-bar">
+      <div class="filter-group">
+        <span class="filter-label">时间</span>
+        <el-radio-group v-model="range" size="small">
           <el-radio-button
             v-for="option in rangeOptions"
             :key="option.value"
@@ -210,104 +321,147 @@ onBeforeUnmount(() => {
             {{ option.label }}
           </el-radio-button>
         </el-radio-group>
-        <el-button :icon="Refresh" :loading="loading" @click="refresh">
-          刷新
-        </el-button>
       </div>
+      <span class="filter-divider" />
+      <div class="filter-group">
+        <span class="filter-label">部门</span>
+        <el-select
+          v-model="departmentModel"
+          clearable
+          placeholder="全部部门"
+          size="small"
+          class="filter-select"
+        >
+          <el-option
+            v-for="department in departments"
+            :key="department.id"
+            :label="department.name"
+            :value="department.id"
+          />
+        </el-select>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">上游</span>
+        <el-select
+          v-model="providerModel"
+          clearable
+          placeholder="全部上游"
+          size="small"
+          class="filter-select"
+        >
+          <el-option
+            v-for="provider in providers"
+            :key="provider.id"
+            :label="provider.name"
+            :value="provider.id"
+          />
+        </el-select>
+      </div>
+      <span v-if="data" class="range-note">
+        {{ formatDateTime(data.range.from) }} — {{ formatDateTime(data.range.to) }}
+      </span>
     </section>
 
     <el-alert
-      v-if="loadError"
-      :title="loadError"
+      v-if="error"
+      :title="data ? `${error}（显示上次成功加载的数据）` : error"
       type="error"
       :closable="false"
       show-icon
       class="load-error"
-    />
+    >
+      <template #default>
+        <el-button link type="primary" @click="manualRefresh">重试</el-button>
+      </template>
+    </el-alert>
 
-    <el-row :gutter="18">
-      <el-col v-for="card in cards" :key="card.label" :xs="24" :sm="12" :lg="6">
-        <el-card class="metric-card" shadow="never">
-          <span class="metric-label">{{ card.label }}</span>
-          <strong class="metric-value">{{ card.value }}</strong>
-          <span class="metric-hint">{{ card.hint }}</span>
-        </el-card>
-      </el-col>
-    </el-row>
+    <div v-if="loading && !data" v-loading="true" class="initial-loading" />
 
-    <el-card v-loading="loading" class="chart-card" shadow="never">
-      <div class="card-heading">
-        <div>
-          <h3>调用趋势</h3>
-          <span>按北京时间自然日统计</span>
-        </div>
-      </div>
-      <div ref="chartEl" class="chart-canvas" />
+    <template v-else>
+      <el-row :gutter="16" class="kpi-row">
+        <el-col
+          v-for="card in cards"
+          :key="card.label"
+          :xs="24"
+          :sm="12"
+          :md="8"
+          :lg="4"
+        >
+          <MetricCard
+            :label="card.label"
+            :value="card.value"
+            :hint="card.hint"
+            :delta="card.delta"
+            :delta-kind="card.deltaKind"
+            :direction="card.direction"
+            :icon="card.icon"
+            :tone="card.tone"
+          />
+        </el-col>
+      </el-row>
+
+      <template v-if="data">
+        <TrendPanel
+          v-model:metric="trendMetric"
+          :trend="data.trend"
+          class="section-row"
+        />
+
+        <el-row :gutter="16" class="section-row">
+          <el-col :xs="24" :lg="12">
+            <BreakdownPanel
+              title="上游分布"
+              subtitle="按请求量排序"
+              :rows="providerRows"
+              empty-text="所选范围内无上游调用"
+            />
+          </el-col>
+          <el-col :xs="24" :lg="12">
+            <BreakdownPanel
+              title="模型分布"
+              subtitle="按请求量排序"
+              :rows="modelRows"
+              empty-text="所选范围内无模型调用"
+            />
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="16" class="section-row">
+          <el-col :xs="24" :lg="16">
+            <TopUsersTable
+              :users="data.top_users"
+              @select-user="openEmployeeAudit"
+              @view-tokens="openTokens"
+            />
+          </el-col>
+          <el-col :xs="24" :lg="8">
+            <DLPPanel :dlp="data.dlp" />
+          </el-col>
+        </el-row>
+
+        <el-row :gutter="16" class="section-row">
+          <el-col :xs="24" :lg="12">
+            <QuotaPressurePanel
+              :items="data.quota_pressure"
+              @view-tokens="openTokens"
+            />
+          </el-col>
+          <el-col :xs="24" :lg="12">
+            <IncidentFeed
+              :incidents="data.recent_incidents"
+              @select-incident="openIncident"
+            />
+          </el-col>
+        </el-row>
+      </template>
+
       <el-empty
-        v-if="trendItems.length === 0"
-        description="所选时间范围内暂无调用数据"
-        :image-size="70"
-        class="chart-empty"
+        v-else
+        description="暂无概览数据"
+        :image-size="90"
+        class="empty-page"
       />
-    </el-card>
-
-    <el-row :gutter="18" class="lower-row">
-      <el-col :xs="24" :lg="14">
-        <el-card class="list-card" shadow="never">
-          <div class="card-heading">
-            <h3>调用量 Top 员工</h3>
-          </div>
-          <el-table :data="topUsers" size="small">
-            <el-table-column type="index" label="#" width="48" />
-            <el-table-column label="员工" min-width="140">
-              <template #default="{ row }">{{ employeeLabel(row) }}</template>
-            </el-table-column>
-            <el-table-column label="调用量" width="110" align="right">
-              <template #default="{ row }">
-                {{ numberFormat.format(row.calls) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="Token" width="140" align="right">
-              <template #default="{ row }">
-                {{ numberFormat.format(row.tokens) }}
-              </template>
-            </el-table-column>
-            <template #empty>
-              <el-empty description="暂无调用数据" :image-size="60" />
-            </template>
-          </el-table>
-        </el-card>
-      </el-col>
-
-      <el-col :xs="24" :lg="10">
-        <el-card class="list-card" shadow="never">
-          <div class="card-heading">
-            <h3>DLP 规则命中</h3>
-          </div>
-          <el-table :data="dlpStats" size="small">
-            <el-table-column prop="rule_name" label="规则" min-width="150" />
-            <el-table-column label="动作" width="90">
-              <template #default="{ row }">
-                <el-tag
-                  :type="actionTagTypes[row.action] ?? 'info'"
-                  size="small"
-                >
-                  {{ actionLabels[row.action] ?? row.action }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="命中" width="90" align="right">
-              <template #default="{ row }">
-                {{ numberFormat.format(row.hits) }}
-              </template>
-            </el-table-column>
-            <template #empty>
-              <el-empty description="暂无 DLP 命中" :image-size="60" />
-            </template>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
+    </template>
   </div>
 </template>
 
@@ -317,95 +471,148 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
+}
+
+.heading-eyebrow {
+  display: block;
+  margin-bottom: 7px;
+  color: #96a4b7;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
+  color: var(--gw-text-muted);
+  font-size: 13px;
 }
 
 .heading-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
+}
+
+.refresh-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #94a2b4;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.refresh-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #1aa06d;
+  box-shadow: 0 0 0 3px rgba(26, 160, 109, 0.12);
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-md);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(23, 32, 51, 0.03);
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.filter-label {
+  color: #8b98aa;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.filter-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--gw-border);
+}
+
+.filter-bar :deep(.el-radio-group) {
+  padding: 2px;
+  border-radius: 8px;
+  background: #f4f7fb;
+}
+
+.filter-bar :deep(.el-radio-button__inner) {
+  border: none;
+  border-radius: 6px !important;
+  background: transparent;
+  box-shadow: none;
+  color: var(--gw-text-secondary);
+  font-size: 11px;
+  padding: 5px 10px;
+}
+
+.filter-bar :deep(.el-radio-button.is-active .el-radio-button__inner) {
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(23, 32, 51, 0.12);
+  color: var(--gw-primary);
+}
+
+.filter-select {
+  width: 150px;
+}
+
+.range-note {
+  margin-left: auto;
+  color: #9aa7b8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .load-error {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
+  border-radius: var(--gw-radius-md);
 }
 
-.metric-card {
-  margin-bottom: 18px;
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+.initial-loading {
+  min-height: 320px;
 }
 
-.metric-card :deep(.el-card__body) {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 20px;
+.kpi-row {
+  margin-bottom: 2px;
 }
 
-.metric-label {
-  color: #7a8ba1;
-  font-size: 13px;
+.kpi-row :deep(.el-col) {
+  margin-bottom: 16px;
 }
 
-.metric-value {
-  color: #1f2d3d;
-  font-size: 28px;
-  line-height: 1;
+.section-row {
+  margin-top: 0;
+  margin-bottom: 16px;
 }
 
-.metric-hint {
-  color: #a0adbd;
-  font-size: 12px;
+.section-row :deep(.el-col) {
+  margin-bottom: 16px;
 }
 
-.chart-card,
-.list-card {
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
-}
-
-.card-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.card-heading h3 {
-  margin: 0;
-  color: #1f2d3d;
-  font-size: 16px;
-}
-
-.card-heading span {
-  color: #9aa8b9;
-  font-size: 12px;
-}
-
-.chart-canvas {
-  height: 300px;
-}
-
-.chart-empty {
-  margin-top: -210px;
-  pointer-events: none;
-}
-
-.lower-row {
-  margin-top: 18px;
+.empty-page {
+  margin-top: 60px;
 }
 
 @media (max-width: 900px) {
@@ -414,11 +621,38 @@ onBeforeUnmount(() => {
   }
 
   .heading-actions {
-    flex-wrap: wrap;
+    width: 100%;
+    justify-content: space-between;
   }
 
-  .list-card {
-    margin-bottom: 18px;
+  .range-note {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .filter-divider {
+    display: none;
+  }
+
+  .filter-group {
+    width: 100%;
+  }
+
+  .filter-group :deep(.el-radio-group) {
+    flex: 1;
+  }
+
+  .filter-group :deep(.el-radio-button) {
+    flex: 1;
+  }
+
+  .filter-group :deep(.el-radio-button__inner) {
+    width: 100%;
+  }
+
+  .filter-select {
+    flex: 1;
+    width: auto;
   }
 }
 </style>

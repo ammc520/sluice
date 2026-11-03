@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Connection,
   Document,
   Key,
   Lock,
+  Menu as MenuIcon,
   Odometer,
   Setting,
   Share,
@@ -24,16 +25,44 @@ interface NavItem {
   superOnly?: boolean
 }
 
-const navItems: NavItem[] = [
-  { path: '/dashboard', label: '概览', icon: Odometer },
-  { path: '/employees', label: '员工管理', icon: User },
-  { path: '/tokens', label: 'Token 管理', icon: Key },
-  { path: '/providers', label: '上游服务', icon: Connection },
-  { path: '/model-routes', label: '模型路由', icon: Share },
-  { path: '/dlp-rules', label: 'DLP 规则', icon: Lock },
-  { path: '/audit', label: '审计日志', icon: Document },
-  { path: '/settings', label: '系统设置', icon: Setting, superOnly: true },
-  { path: '/admin-users', label: '管理员账号', icon: UserFilled, superOnly: true },
+interface NavGroup {
+  label: string
+  items: NavItem[]
+}
+
+const navGroups: NavGroup[] = [
+  {
+    label: '监控',
+    items: [{ path: '/dashboard', label: '概览', icon: Odometer }],
+  },
+  {
+    label: '资源',
+    items: [
+      { path: '/employees', label: '员工管理', icon: User },
+      { path: '/tokens', label: 'Token 管理', icon: Key },
+      { path: '/providers', label: '上游服务', icon: Connection },
+      { path: '/model-routes', label: '模型路由', icon: Share },
+    ],
+  },
+  {
+    label: '安全与合规',
+    items: [
+      { path: '/dlp-rules', label: 'DLP 规则', icon: Lock },
+      { path: '/audit', label: '审计日志', icon: Document },
+    ],
+  },
+  {
+    label: '系统',
+    items: [
+      { path: '/settings', label: '系统设置', icon: Setting, superOnly: true },
+      {
+        path: '/admin-users',
+        label: '管理员账号',
+        icon: UserFilled,
+        superOnly: true,
+      },
+    ],
+  },
 ]
 
 const roleLabels: Record<AdminRole, string> = {
@@ -45,17 +74,49 @@ const roleLabels: Record<AdminRole, string> = {
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const sidebarOpen = ref(false)
 
-const visibleNav = computed(() =>
-  navItems.filter((item) => !item.superOnly || auth.isSuperAdmin),
+const visibleGroups = computed(() =>
+  navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => !item.superOnly || auth.isSuperAdmin,
+      ),
+    }))
+    .filter((group) => group.items.length > 0),
 )
 
-const currentTitle = computed(
-  () => navItems.find((item) => item.path === route.path)?.label ?? '管理后台',
-)
+const currentTitle = computed(() => {
+  for (const group of navGroups) {
+    const match = group.items.find((item) => item.path === route.path)
+    if (match) return match.label
+  }
+  return '管理后台'
+})
 
 const roleLabel = computed(() =>
   auth.user ? roleLabels[auth.user.role] : '',
+)
+
+const username = computed(() => auth.user?.username ?? '')
+
+const userInitial = computed(() =>
+  (auth.user?.username ?? 'A').slice(0, 1).toUpperCase(),
+)
+
+const dateLabel = new Intl.DateTimeFormat('zh-CN', {
+  month: 'long',
+  day: 'numeric',
+  weekday: 'long',
+  timeZone: 'Asia/Shanghai',
+}).format(new Date())
+
+watch(
+  () => route.path,
+  () => {
+    sidebarOpen.value = false
+  },
 )
 
 async function logout(): Promise<void> {
@@ -70,85 +131,138 @@ async function logout(): Promise<void> {
 </script>
 
 <template>
-  <el-container class="admin-shell">
-    <el-aside width="220px" class="sidebar">
+  <div class="admin-shell">
+    <div
+      v-if="sidebarOpen"
+      class="sidebar-scrim"
+      aria-hidden="true"
+      @click="sidebarOpen = false"
+    />
+
+    <aside class="sidebar" :class="{ 'is-open': sidebarOpen }">
       <div class="brand">
         <div class="brand-mark">API</div>
         <div class="brand-text">
           <strong>安全网关</strong>
-          <span>DLP 管理控制台</span>
+          <span>API · DLP 控制台</span>
         </div>
       </div>
 
-      <el-menu
-        :default-active="route.path"
-        router
-        class="nav-menu"
-        background-color="#16212f"
-        text-color="#b8c4d4"
-        active-text-color="#ffffff"
-      >
-        <el-menu-item v-for="item in visibleNav" :key="item.path" :index="item.path">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <span>{{ item.label }}</span>
-        </el-menu-item>
-      </el-menu>
-    </el-aside>
+      <nav class="nav-area" aria-label="主导航">
+        <div v-for="group in visibleGroups" :key="group.label" class="nav-group">
+          <span class="nav-group-label">{{ group.label }}</span>
+          <el-menu
+            :default-active="route.path"
+            router
+            class="nav-menu"
+          >
+            <el-menu-item
+              v-for="item in group.items"
+              :key="item.path"
+              :index="item.path"
+            >
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.label }}</span>
+            </el-menu-item>
+          </el-menu>
+        </div>
+      </nav>
 
-    <el-container class="main-shell">
-      <el-header class="topbar">
-        <div class="page-title">{{ currentTitle }}</div>
-        <div class="user-area">
-          <el-icon class="user-icon"><UserFilled /></el-icon>
-          <span class="username">{{ auth.user?.username }}</span>
-          <el-tag size="small" effect="plain">{{ roleLabel }}</el-tag>
+      <div class="sidebar-footer">
+        <span class="footer-icon"><el-icon><Lock /></el-icon></span>
+        <div>
+          <strong>管理员操作留痕</strong>
+          <span>敏感信息查看均写入审计日志</span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button
+            class="menu-button"
+            type="button"
+            aria-label="展开导航"
+            @click="sidebarOpen = true"
+          >
+            <el-icon><MenuIcon /></el-icon>
+          </button>
+          <div class="title-block">
+            <span class="title-eyebrow">安全网关 · 管理控制台</span>
+            <h1 class="page-title">{{ currentTitle }}</h1>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <span class="date-label">{{ dateLabel }}</span>
+          <span class="topbar-divider" />
+          <div class="user-chip">
+            <span class="avatar">{{ userInitial }}</span>
+            <div class="user-text">
+              <strong>{{ username }}</strong>
+              <span>{{ roleLabel }}</span>
+            </div>
+          </div>
           <el-button text class="logout-button" @click="logout">
             <el-icon><SwitchButton /></el-icon>
             <span>退出</span>
           </el-button>
         </div>
-      </el-header>
+      </header>
 
-      <el-main class="content">
-        <router-view />
-      </el-main>
-    </el-container>
-  </el-container>
+      <main class="content">
+        <div class="content-inner">
+          <router-view />
+        </div>
+      </main>
+    </div>
+  </div>
 </template>
 
 <style scoped>
 .admin-shell {
+  display: flex;
   min-height: 100vh;
-  background: #f3f6fa;
+  background: transparent;
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
   display: flex;
+  flex: 0 0 240px;
   flex-direction: column;
-  background: #16212f;
-  color: #fff;
+  width: 240px;
+  height: 100vh;
+  border-right: 1px solid var(--gw-border);
+  background:
+    linear-gradient(180deg, rgba(47, 107, 255, 0.035), transparent 22%),
+    #ffffff;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 72px;
-  padding: 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  height: 76px;
+  padding: 0 22px;
+  border-bottom: 1px solid #f0f3f8;
 }
 
 .brand-mark {
   display: grid;
+  flex-shrink: 0;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #409eff, #2f7fd4);
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2f6bff, #5b8cff);
+  box-shadow: 0 8px 18px -10px rgba(47, 107, 255, 0.8);
   color: #fff;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
 }
 
 .brand-text {
@@ -158,78 +272,320 @@ async function logout(): Promise<void> {
 }
 
 .brand-text strong {
+  color: var(--gw-text);
   font-size: 15px;
-  letter-spacing: 0.4px;
+  letter-spacing: 0.3px;
 }
 
 .brand-text span {
-  color: #7f8fa4;
+  color: var(--gw-text-muted);
   font-size: 11px;
+  letter-spacing: 0.3px;
+}
+
+.nav-area {
+  flex: 1;
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+
+.nav-group + .nav-group {
+  margin-top: 18px;
+}
+
+.nav-group-label {
+  display: block;
+  padding: 0 12px 6px;
+  color: #9aa7b8;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
 }
 
 .nav-menu {
-  flex: 1;
   border-right: none;
-  padding: 10px 8px;
+  background: transparent;
 }
 
-.nav-menu .el-menu-item {
-  height: 46px;
-  margin-bottom: 4px;
+.nav-menu :deep(.el-menu-item) {
+  position: relative;
+  height: 42px;
+  margin-bottom: 2px;
+  padding: 0 12px !important;
+  border-radius: 9px;
+  color: var(--gw-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.nav-menu :deep(.el-menu-item .el-icon) {
+  color: #8b98aa;
+  font-size: 17px;
+  transition: color 0.15s ease;
+}
+
+.nav-menu :deep(.el-menu-item:hover) {
+  background: #f5f8fd;
+  color: var(--gw-text);
+}
+
+.nav-menu :deep(.el-menu-item.is-active) {
+  background: var(--gw-primary-soft);
+  color: var(--gw-primary);
+  font-weight: 600;
+}
+
+.nav-menu :deep(.el-menu-item.is-active::before) {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--gw-primary);
+  content: '';
+}
+
+.nav-menu :deep(.el-menu-item.is-active .el-icon) {
+  color: var(--gw-primary);
+}
+
+.sidebar-footer {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px;
+  padding: 14px;
+  border: 1px solid #eaf0f8;
+  border-radius: 12px;
+  background: #f8faff;
+}
+
+.footer-icon {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 28px;
+  height: 28px;
   border-radius: 8px;
+  background: #e9f0ff;
+  color: var(--gw-primary);
+  font-size: 14px;
 }
 
-.nav-menu .el-menu-item.is-active {
-  background: #409eff;
+.sidebar-footer div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.nav-menu .el-menu-item:hover {
-  background: rgba(64, 158, 255, 0.16);
+.sidebar-footer strong {
+  color: #3d4c63;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sidebar-footer span {
+  color: #93a0b2;
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .main-shell {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
   min-width: 0;
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
-  padding: 0 28px;
-  background: #fff;
-  border-bottom: 1px solid #e6ebf2;
+  height: 76px;
+  padding: 0 32px;
+  border-bottom: 1px solid rgba(229, 235, 243, 0.9);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(14px);
+}
+
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+}
+
+.topbar-left {
+  gap: 12px;
+  min-width: 0;
+}
+
+.title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title-eyebrow {
+  color: #9aa7b8;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .page-title {
-  color: #1f2d3d;
-  font-size: 18px;
+  margin: 0;
+  color: var(--gw-text);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.topbar-right {
+  gap: 14px;
+}
+
+.date-label {
+  color: var(--gw-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--gw-border);
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #edf3ff, #dbe7ff);
+  color: var(--gw-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.user-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.user-text strong {
+  color: #2f3f57;
+  font-size: 12px;
   font-weight: 600;
 }
 
-.user-area {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.user-icon {
-  color: #7a8ba1;
-  font-size: 18px;
-}
-
-.username {
-  color: #26384d;
-  font-size: 14px;
-  font-weight: 500;
+.user-text span {
+  color: #93a0b2;
+  font-size: 10px;
 }
 
 .logout-button {
-  margin-left: 8px;
-  color: #6b7c91;
+  margin-left: 2px;
+  color: #6b7a90;
+}
+
+.logout-button:hover {
+  color: var(--gw-danger);
+  background: #fdf2f2;
+}
+
+.menu-button {
+  display: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--gw-border);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--gw-text-secondary);
+  cursor: pointer;
 }
 
 .content {
-  padding: 24px 28px 40px;
+  flex: 1;
+  padding: 26px 32px 48px;
+}
+
+.content-inner {
+  width: 100%;
+  max-width: 1560px;
+  margin: 0 auto;
+}
+
+.sidebar-scrim {
+  display: none;
+}
+
+@media (max-width: 1080px) {
+  .sidebar {
+    position: fixed;
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 18px 0 40px rgba(23, 32, 51, 0.12);
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-scrim {
+    position: fixed;
+    z-index: 55;
+    display: block;
+    inset: 0;
+    background: rgba(20, 30, 48, 0.3);
+    backdrop-filter: blur(1px);
+  }
+
+  .menu-button {
+    display: grid;
+  }
+
+  .topbar {
+    padding: 0 20px;
+  }
+
+  .content {
+    padding: 22px 20px 40px;
+  }
+}
+
+@media (max-width: 680px) {
+  .date-label,
+  .topbar-divider,
+  .user-text {
+    display: none;
+  }
+
+  .topbar {
+    height: 68px;
+  }
+
+  .logout-button span {
+    display: none;
+  }
+
+  .content {
+    padding: 18px 14px 36px;
+  }
 }
 </style>

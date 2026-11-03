@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Lock, User } from '@element-plus/icons-vue'
+import { CircleCheck, Lock, User } from '@element-plus/icons-vue'
 
 import { ApiError } from '../api/client'
 import { safeRedirect } from '../router/redirect'
@@ -51,203 +51,366 @@ async function submit(): Promise<void> {
   <div class="login-page">
     <div class="login-shell">
       <section class="login-intro">
-        <div class="intro-mark">API</div>
-        <h1>企业 API 安全网关</h1>
-        <p>统一访问入口 · 精细配额管理 · 敏感数据防护</p>
-        <ul>
-          <li>集中托管上游模型凭据</li>
-          <li>按员工与周期控制用量</li>
-          <li>DLP 实时阻断与审计留痕</li>
-        </ul>
-      </section>
-
-      <el-card class="login-card" shadow="never">
-        <div class="card-heading">
-          <h2>管理员登录</h2>
-          <p>请使用独立管理员账号访问控制台</p>
+        <div class="intro-brand">
+          <span class="intro-mark">API</span>
+          <span class="intro-brand-name">安全网关 · DLP 控制台</span>
         </div>
 
-        <el-form :model="form" @submit.prevent="submit">
-          <el-form-item>
-            <el-input
-              v-model="form.username"
-              data-test="username"
-              size="large"
-              placeholder="管理员账号"
-              autocomplete="username"
-              :prefix-icon="User"
+        <span class="intro-badge">企业级访问控制</span>
+        <h1>让每一次模型调用<br />都可管、可控、可追溯</h1>
+        <p class="intro-lead">
+          统一托管上游凭据，按员工控制配额与速率，实时识别并阻断敏感信息外发。
+        </p>
+
+        <ul class="intro-features">
+          <li>
+            <el-icon><CircleCheck /></el-icon>
+            <span>集中托管上游模型密钥，员工无需持有真实 Key</span>
+          </li>
+          <li>
+            <el-icon><CircleCheck /></el-icon>
+            <span>按员工、周期与来源 IP 精细限制调用额度</span>
+          </li>
+          <li>
+            <el-icon><CircleCheck /></el-icon>
+            <span>DLP 实时阻断、脱敏与完整审计留痕</span>
+          </li>
+        </ul>
+
+        <div class="intro-foot">
+          <span class="pulse-dot" />
+          仅限授权管理员访问
+        </div>
+      </section>
+
+      <section class="login-panel">
+        <el-card class="login-card" shadow="never">
+          <div class="card-heading">
+            <span class="card-eyebrow">ADMIN CONSOLE</span>
+            <h2>管理员登录</h2>
+            <p>请使用独立管理员账号访问控制台</p>
+          </div>
+
+          <el-form label-position="top" :model="form" @submit.prevent="submit">
+            <el-form-item label="管理员账号">
+              <el-input
+                v-model="form.username"
+                data-test="username"
+                size="large"
+                placeholder="请输入管理员账号"
+                autocomplete="username"
+                :prefix-icon="User"
+              />
+            </el-form-item>
+            <el-form-item label="登录密码">
+              <el-input
+                v-model="form.password"
+                data-test="password"
+                size="large"
+                type="password"
+                placeholder="请输入登录密码"
+                autocomplete="current-password"
+                show-password
+                :prefix-icon="Lock"
+              />
+            </el-form-item>
+
+            <el-alert
+              v-if="errorMessage"
+              data-test="login-error"
+              class="login-error"
+              :title="errorMessage"
+              type="error"
+              :closable="false"
+              show-icon
             />
-          </el-form-item>
-          <el-form-item>
-            <el-input
-              v-model="form.password"
-              data-test="password"
+
+            <el-button
+              data-test="submit"
+              class="login-submit"
+              type="primary"
               size="large"
-              type="password"
-              placeholder="登录密码"
-              autocomplete="current-password"
-              show-password
-              :prefix-icon="Lock"
-            />
-          </el-form-item>
+              native-type="submit"
+              :loading="loading"
+            >
+              登录控制台
+            </el-button>
+          </el-form>
 
-          <el-alert
-            v-if="errorMessage"
-            data-test="login-error"
-            class="login-error"
-            :title="errorMessage"
-            type="error"
-            :closable="false"
-            show-icon
-          />
-
-          <el-button
-            data-test="submit"
-            class="login-submit"
-            type="primary"
-            size="large"
-            native-type="submit"
-            :loading="loading"
-          >
-            登录
-          </el-button>
-        </el-form>
-
-        <p class="security-note">仅限授权管理员访问，所有操作均会记录审计日志</p>
-      </el-card>
+          <p class="security-note">
+            仅限授权管理员访问，所有操作均会记录审计日志
+          </p>
+        </el-card>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
 .login-page {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 100vh;
-  padding: 32px 20px;
+  padding: 36px 24px;
+  overflow: hidden;
   background:
-    radial-gradient(circle at 15% 20%, rgba(64, 158, 255, 0.22), transparent 32%),
-    radial-gradient(circle at 85% 80%, rgba(44, 112, 190, 0.18), transparent 30%),
-    #0f1a26;
+    radial-gradient(circle at 12% 12%, rgba(47, 107, 255, 0.14), transparent 34%),
+    radial-gradient(circle at 88% 84%, rgba(70, 140, 255, 0.1), transparent 32%),
+    #f4f7fb;
+}
+
+.login-page::before {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(47, 107, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47, 107, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  content: '';
+  mask-image: radial-gradient(circle at 50% 40%, black, transparent 72%);
+  pointer-events: none;
 }
 
 .login-shell {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(340px, 420px);
-  gap: 72px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 430px);
+  gap: 56px;
   align-items: center;
-  width: min(100%, 980px);
+  width: min(100%, 1040px);
+  padding: 52px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 1px 2px rgba(23, 32, 51, 0.04),
+    0 30px 80px -32px rgba(23, 32, 51, 0.28);
+  backdrop-filter: blur(18px);
 }
 
 .login-intro {
-  color: #fff;
+  padding: 8px 0;
+}
+
+.intro-brand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 34px;
 }
 
 .intro-mark {
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
-  margin-bottom: 28px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #409eff, #2f7fd4);
-  font-size: 17px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2f6bff, #5b8cff);
+  box-shadow: 0 10px 24px -12px rgba(47, 107, 255, 0.9);
+  color: #fff;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.8px;
+  letter-spacing: 0.7px;
+}
+
+.intro-brand-name {
+  color: #3f4e66;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.intro-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border: 1px solid #dbe6ff;
+  border-radius: 999px;
+  background: #f1f5ff;
+  color: #2f6bff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .login-intro h1 {
-  margin: 0 0 16px;
-  font-size: 36px;
-  line-height: 1.2;
-  letter-spacing: 0.5px;
+  margin: 18px 0 16px;
+  color: #16233a;
+  font-size: 33px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
 }
 
-.login-intro p {
-  margin: 0 0 32px;
-  color: #a9b9ca;
-  font-size: 15px;
+.intro-lead {
+  max-width: 460px;
+  margin: 0 0 30px;
+  color: #61708a;
+  font-size: 14px;
+  line-height: 1.75;
 }
 
-.login-intro ul {
+.intro-features {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
   margin: 0;
   padding: 0;
   list-style: none;
-  color: #c6d2df;
-  font-size: 14px;
-  line-height: 2.2;
 }
 
-.login-intro li::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 10px;
+.intro-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #4a5a73;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.intro-features .el-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--gw-success);
+  font-size: 16px;
+}
+
+.intro-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 38px;
+  color: #8a97a8;
+  font-size: 11px;
+}
+
+.pulse-dot {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #409eff;
-  vertical-align: middle;
+  background: #1aa06d;
+  box-shadow: 0 0 0 4px rgba(26, 160, 109, 0.12);
+}
+
+.login-panel {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .login-card {
-  border: none;
-  border-radius: 16px;
-  box-shadow: 0 24px 70px rgba(4, 12, 24, 0.45);
+  width: 100%;
+  border: 1px solid #e8eef7;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(23, 32, 51, 0.04),
+    0 24px 60px -34px rgba(23, 32, 51, 0.4);
+}
+
+.login-card :deep(.el-card__body) {
+  padding: 34px 32px 28px;
 }
 
 .card-heading {
-  margin-bottom: 26px;
+  margin-bottom: 24px;
+}
+
+.card-eyebrow {
+  display: block;
+  margin-bottom: 8px;
+  color: #9aa7b8;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
 }
 
 .card-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 24px;
+  margin: 0 0 7px;
+  color: #172033;
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .card-heading p {
   margin: 0;
-  color: #8393a7;
-  font-size: 13px;
+  color: #8a97a8;
+  font-size: 12px;
 }
 
 .login-error {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
 .login-submit {
   width: 100%;
   margin-top: 4px;
+  height: 44px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .security-note {
-  margin: 24px 0 0;
-  color: #98a6b8;
-  font-size: 12px;
+  margin: 22px 0 0;
+  color: #9aa7b8;
+  font-size: 11px;
   line-height: 1.6;
   text-align: center;
 }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
   .login-shell {
     grid-template-columns: 1fr;
-    gap: 36px;
+    gap: 30px;
+    padding: 34px 22px;
+    border-radius: 20px;
   }
 
   .login-intro {
     text-align: center;
   }
 
-  .intro-mark {
-    margin: 0 auto 20px;
+  .intro-brand {
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+
+  .intro-badge {
+    margin: 0 auto;
   }
 
   .login-intro h1 {
-    font-size: 28px;
+    font-size: 26px;
   }
 
-  .login-intro ul {
+  .intro-lead {
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .intro-features,
+  .intro-foot {
     display: none;
+  }
+
+  .login-panel {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .login-page {
+    padding: 16px 12px;
+  }
+
+  .login-shell {
+    padding: 24px 14px;
+  }
+
+  .login-card :deep(.el-card__body) {
+    padding: 26px 20px 22px;
   }
 }
 </style>

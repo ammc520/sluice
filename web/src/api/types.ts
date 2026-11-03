@@ -40,6 +40,11 @@ export interface Employee {
   updated_at: string
 }
 
+export interface Department {
+  id: number
+  name: string
+}
+
 export interface EmployeePayload {
   employee_no: string
   name: string
@@ -112,6 +117,11 @@ export interface ProviderPayload {
 export interface ProviderTestResult {
   reachable: boolean
   status_code?: number
+  message?: string
+}
+
+export interface ProviderModelsResult {
+  items: string[]
   message?: string
 }
 
@@ -220,6 +230,148 @@ export interface DLPStat {
   rule_name: string
   action: DLPAction
   hits: number
+}
+
+export type DashboardRange = 'today' | '24h' | '7d' | '30d'
+export type DashboardInterval = 'hour' | 'day'
+
+export interface DashboardMetric {
+  value: number
+  previous: number
+  delta_pct?: number | null
+  delta_pp?: number | null
+}
+
+export interface DashboardKPIs {
+  requests: DashboardMetric
+  tokens: DashboardMetric
+  prompt_tokens: DashboardMetric
+  completion_tokens: DashboardMetric
+  active_users: DashboardMetric
+  error_rate: DashboardMetric
+  dlp_requests: DashboardMetric
+  p95_latency_ms: DashboardMetric
+  client_disconnects: DashboardMetric
+}
+
+export interface DashboardTrendPoint {
+  requests: number
+  errors: number
+  tokens: number
+  prompt_tokens: number
+  completion_tokens: number
+  dlp_requests: number
+  p95_latency_ms: number | null
+}
+
+export interface DashboardTrend {
+  interval: DashboardInterval
+  buckets: string[]
+  current: DashboardTrendPoint[]
+  previous: DashboardTrendPoint[]
+}
+
+export interface DashboardProviderStat {
+  id: string
+  name: string
+  requests: number
+  tokens: number
+  errors: number
+  p95_latency_ms: number
+}
+
+export interface DashboardModelStat {
+  model: string
+  requests: number
+  tokens: number
+}
+
+export interface DashboardQuotaBrief {
+  type: QuotaType
+  period: QuotaPeriod
+  used: number
+  total: number
+  pct: number
+}
+
+export interface DashboardUser {
+  employee_id: string
+  employee_no: string
+  name: string
+  department: string
+  requests: number
+  tokens: number
+  errors: number
+  error_rate: number
+  dlp_requests: number
+  quota: DashboardQuotaBrief | null
+}
+
+export interface DashboardDLPAction {
+  action: DLPAction
+  requests: number
+  hits: number
+}
+
+export interface DashboardDLPRule {
+  rule_name: string
+  action: DLPAction
+  hits: number
+}
+
+export interface DashboardDLP {
+  requests: number
+  hits: number
+  by_action: DashboardDLPAction[]
+  by_rule: DashboardDLPRule[]
+}
+
+export interface DashboardQuotaPressure {
+  employee_id: string
+  name: string
+  department: string
+  quota_type: QuotaType
+  quota_period: QuotaPeriod
+  used: number
+  total: number
+  pct: number
+  period_start: string | null
+  expires_at: string | null
+}
+
+export interface DashboardIncident {
+  id: number
+  event_time: string
+  employee_id: string
+  employee_name: string
+  action: DLPAction
+  rules: string[]
+  model: string
+  request_id: string
+}
+
+export interface DashboardSummaryRange {
+  from: string
+  to: string
+  previous_from: string
+  previous_to: string
+  interval: DashboardInterval
+  timezone: string
+}
+
+export interface DashboardSummary {
+  generated_at: string
+  range: DashboardSummaryRange
+  kpis: DashboardKPIs
+  trend: DashboardTrend
+  breakdown: {
+    providers: DashboardProviderStat[]
+    models: DashboardModelStat[]
+  }
+  top_users: DashboardUser[]
+  dlp: DashboardDLP
+  quota_pressure: DashboardQuotaPressure[]
+  recent_incidents: DashboardIncident[]
 }
 
 export interface AuditDLPHit {

@@ -90,12 +90,13 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	employees := NewEmployeeHandler(pg.Employees)
 	tokens := NewTokenHandler(pg.Tokens, pg.Employees, time.Now)
 	providerClient := netguard.NewClient(10*time.Second, 10*time.Second, netguard.WithPrivateUpstreams())
-	providers := NewProviderHandler(pg.Providers, env.cipher, providerClient, nil)
+	providers := NewProviderHandler(pg.Providers, pg.Routes, env.cipher, providerClient, nil)
 	modelRoutes := NewRouteHandler(pg.Routes, pg.Providers, nil)
 	dlpRules := NewDLPRuleHandler(pg.DLPRules, nil)
 	dlpTester := NewDLPTestHandler(pg.DLPRules)
 	auditHandler := NewAuditHandler(pg.Audit, pg.Admins, env.cipher, time.Now, nil)
-	dashboard := NewDashboardHandler(pg.Audit, time.Now)
+	dashboard := NewDashboardHandler(pg.Audit, pg.Dashboard, time.Now)
+	departments := NewDepartmentHandler(pg.Departments)
 	env.settings = NewSettingsHandler(pg.Settings, pg.Admins, env.cipher, nil, time.Now, nil)
 	adminUsers := NewAdminUsersHandler(pg.Admins, nil)
 
@@ -108,6 +109,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.POST("/auth/logout", authHandler.Logout)
 
 	authed.GET("/employees", employees.List)
+	authed.GET("/departments", departments.List)
 	authed.POST("/employees", adminauth.RequireRole("operator"), employees.Create)
 	authed.PUT("/employees/:id", adminauth.RequireRole("operator"), employees.Update)
 
@@ -118,6 +120,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.POST("/tokens/:id/rotate", adminauth.RequireRole("operator"), tokens.Rotate)
 
 	authed.GET("/providers", providers.List)
+	authed.GET("/providers/:id/models", providers.Models)
 	authed.POST("/providers", adminauth.RequireRole("operator"), providers.Create)
 	authed.PUT("/providers/:id", adminauth.RequireRole("operator"), providers.Update)
 	authed.DELETE("/providers/:id", adminauth.RequireRole("operator"), providers.Delete)
@@ -141,6 +144,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.GET("/dashboard/trend", dashboard.Trend)
 	authed.GET("/dashboard/top-users", dashboard.TopUsers)
 	authed.GET("/dashboard/dlp", dashboard.DLP)
+	authed.GET("/dashboard/summary", dashboard.Summary)
 
 	super := authed.Group("", adminauth.RequireRole("super_admin"))
 	super.GET("/settings/smtp", env.settings.GetSMTP)

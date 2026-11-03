@@ -252,11 +252,12 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, opts Opti
 	authHandler := adminapi.NewAuthHandler(adminSvc, cfg.CookieSecure)
 	adminUsersHandler := adminapi.NewAdminUsersHandler(stores.Admins, cfg.TrustedProxies)
 	auditHandler := adminapi.NewAuditHandler(stores.Audit, stores.Admins, cipher, now, cfg.TrustedProxies)
-	dashboardHandler := adminapi.NewDashboardHandler(stores.Audit, now)
+	dashboardHandler := adminapi.NewDashboardHandler(stores.Audit, stores.Dashboard, now)
+	departmentHandler := adminapi.NewDepartmentHandler(stores.Departments)
 	dlpRuleHandler := adminapi.NewDLPRuleHandler(stores.DLPRules, refreshDLP)
 	dlpTestHandler := adminapi.NewDLPTestHandler(stores.DLPRules)
 	employeeHandler := adminapi.NewEmployeeHandler(stores.Employees)
-	providerHandler := adminapi.NewProviderHandler(stores.Providers, cipher, testClient, refreshResolver)
+	providerHandler := adminapi.NewProviderHandler(stores.Providers, stores.Routes, cipher, testClient, refreshResolver)
 	routeHandler := adminapi.NewRouteHandler(stores.Routes, stores.Providers, refreshResolver)
 	settingsHandler := adminapi.NewSettingsHandler(stores.Settings, stores.Admins, cipher, func(cfg alert.SMTPConfig) alert.Mailer {
 		return alert.NewMailer(cfg)
@@ -288,17 +289,18 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, opts Opti
 		Gateway: gatewayHandler.Handle,
 		RegisterAdmin: func(group *gin.RouterGroup) {
 			registerAdminRoutes(group, adminSvc, routeSet{
-				auth:       authHandler,
-				adminUsers: adminUsersHandler,
-				audit:      auditHandler,
-				dashboard:  dashboardHandler,
-				dlpRules:   dlpRuleHandler,
-				dlpTest:    dlpTestHandler,
-				employees:  employeeHandler,
-				providers:  providerHandler,
-				routes:     routeHandler,
-				settings:   settingsHandler,
-				tokens:     tokenHandler,
+				auth:        authHandler,
+				adminUsers:  adminUsersHandler,
+				audit:       auditHandler,
+				dashboard:   dashboardHandler,
+				dlpRules:    dlpRuleHandler,
+				dlpTest:     dlpTestHandler,
+				employees:   employeeHandler,
+				departments: departmentHandler,
+				providers:   providerHandler,
+				routes:      routeHandler,
+				settings:    settingsHandler,
+				tokens:      tokenHandler,
 			})
 		},
 	})
@@ -450,17 +452,18 @@ func (r *dynamicResolver) Resolve(path, model string) (proxy.Target, error) {
 }
 
 type routeSet struct {
-	auth       *adminapi.AuthHandler
-	adminUsers *adminapi.AdminUsersHandler
-	audit      *adminapi.AuditHandler
-	dashboard  *adminapi.DashboardHandler
-	dlpRules   *adminapi.DLPRuleHandler
-	dlpTest    *adminapi.DLPTestHandler
-	employees  *adminapi.EmployeeHandler
-	providers  *adminapi.ProviderHandler
-	routes     *adminapi.RouteHandler
-	settings   *adminapi.SettingsHandler
-	tokens     *adminapi.TokenHandler
+	auth        *adminapi.AuthHandler
+	adminUsers  *adminapi.AdminUsersHandler
+	audit       *adminapi.AuditHandler
+	dashboard   *adminapi.DashboardHandler
+	dlpRules    *adminapi.DLPRuleHandler
+	dlpTest     *adminapi.DLPTestHandler
+	employees   *adminapi.EmployeeHandler
+	departments *adminapi.DepartmentHandler
+	providers   *adminapi.ProviderHandler
+	routes      *adminapi.RouteHandler
+	settings    *adminapi.SettingsHandler
+	tokens      *adminapi.TokenHandler
 }
 
 func registerAdminRoutes(group *gin.RouterGroup, adminSvc *adminauth.Service, h routeSet) {
@@ -476,9 +479,12 @@ func registerAdminRoutes(group *gin.RouterGroup, adminSvc *adminauth.Service, h 
 	authed.GET("/dashboard/trend", h.dashboard.Trend)
 	authed.GET("/dashboard/top-users", h.dashboard.TopUsers)
 	authed.GET("/dashboard/dlp", h.dashboard.DLP)
+	authed.GET("/dashboard/summary", h.dashboard.Summary)
 	authed.GET("/employees", h.employees.List)
+	authed.GET("/departments", h.departments.List)
 	authed.GET("/tokens", h.tokens.List)
 	authed.GET("/providers", h.providers.List)
+	authed.GET("/providers/:id/models", h.providers.Models)
 	authed.GET("/model-routes", h.routes.List)
 	authed.GET("/dlp-rules", h.dlpRules.List)
 	authed.GET("/audit", h.audit.List)

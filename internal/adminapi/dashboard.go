@@ -19,16 +19,23 @@ const (
 
 // DashboardHandler serves aggregate usage and DLP statistics.
 type DashboardHandler struct {
-	audit store.AuditStore
-	now   func() time.Time
+	audit     store.AuditStore
+	dashboard store.DashboardStore
+	now       func() time.Time
+	cache     *summaryCache
 }
 
 // NewDashboardHandler creates the dashboard handler.
-func NewDashboardHandler(audit store.AuditStore, clock func() time.Time) *DashboardHandler {
+func NewDashboardHandler(audit store.AuditStore, dashboard store.DashboardStore, clock func() time.Time) *DashboardHandler {
 	if clock == nil {
 		clock = time.Now
 	}
-	return &DashboardHandler{audit: audit, now: clock}
+	return &DashboardHandler{
+		audit:     audit,
+		dashboard: dashboard,
+		now:       clock,
+		cache:     newSummaryCache(),
+	}
 }
 
 type dashboardOverviewDTO struct {

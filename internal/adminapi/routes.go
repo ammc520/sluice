@@ -83,6 +83,9 @@ func (p *routePayload) normalize() string {
 	if len(p.Pattern) > 255 {
 		return "pattern is too long"
 	}
+	if len(p.UpstreamModel) > 255 {
+		return "upstream_model is too long"
+	}
 	if p.MatchType == "glob" {
 		if _, err := path.Match(p.Pattern, ""); err != nil {
 			return "pattern is not a valid glob"

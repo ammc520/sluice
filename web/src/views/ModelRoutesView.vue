@@ -10,6 +10,7 @@ import type {
   ModelRoutePayload,
   Protocol,
   Provider,
+  ProviderModelsResult,
   RouteMatchType,
 } from '../api/types'
 import { useAuthStore } from '../stores/auth'
@@ -41,6 +42,9 @@ const loadError = ref('')
 const dialogVisible = ref(false)
 const saving = ref(false)
 const formError = ref('')
+const modelOptions = ref<string[]>([])
+const modelsLoading = ref(false)
+const modelsMessage = ref('')
 const form = reactive<RouteForm>({
   provider_id: '',
   protocol: 'openai_compatible',
@@ -95,6 +99,54 @@ async function loadData(): Promise<void> {
   }
 }
 
+let modelsRequest = 0
+
+async function loadModels(): Promise<void> {
+  const requestID = ++modelsRequest
+  modelOptions.value = []
+  modelsMessage.value = ''
+  if (!form.provider_id) return
+  modelsLoading.value = true
+  try {
+    const result = await api.get<ProviderModelsResult>(
+      `/providers/${form.provider_id}/models`,
+    )
+    if (requestID !== modelsRequest) return
+    modelOptions.value = result.items
+    modelsMessage.value = result.message ?? ''
+  } catch (error) {
+    if (requestID !== modelsRequest) return
+    modelsMessage.value = apiErrorMessage(
+      error,
+      '模型列表获取失败，请手动输入',
+    )
+  } finally {
+    if (requestID === modelsRequest) modelsLoading.value = false
+  }
+}
+
+function modelsMessageText(message: string): string {
+  if (message.includes('does not expose')) {
+    return '该上游未提供模型列表接口，请手动输入'
+  }
+  if (message.includes('API key')) return 'API Key 可能无效，请手动输入'
+  if (message.includes('not understood')) {
+    return '无法解析上游模型列表，请手动输入'
+  }
+  if (message.includes('unexpected status')) {
+    return '上游返回异常状态，请手动输入'
+  }
+  return message
+}
+
+function upstreamModelHint(): string {
+  if (modelsMessage.value) return modelsMessageText(modelsMessage.value)
+  if (modelOptions.value.length > 0) {
+    return `已加载 ${modelOptions.value.length} 个上游模型，可搜索选择，也可手动输入`
+  }
+  return '留空则使用客户端请求的模型名称'
+}
+
 function openCreate(): void {
   if (providers.value.length === 0) {
     ElMessage.warning('请先配置至少一个上游服务')
@@ -109,11 +161,13 @@ function openCreate(): void {
   form.priority = 100
   form.enabled = true
   dialogVisible.value = true
+  void loadModels()
 }
 
 function onProviderChange(providerID: string): void {
   const provider = providerMap.value.get(providerID)
   if (provider) form.protocol = provider.protocol
+  void loadModels()
 }
 
 function validateForm(): string {
@@ -125,6 +179,9 @@ function validateForm(): string {
   const pattern = form.pattern.trim()
   if (!pattern) return '请输入匹配 pattern'
   if (pattern.length > 255) return 'pattern 不能超过 255 个字符'
+  if (form.upstream_model.trim().length > 255) {
+    return '上游模型名称不能超过 255 个字符'
+  }
   if (!Number.isInteger(form.priority) || form.priority < 0) {
     return '优先级必须是非负整数'
   }
@@ -247,7 +304,7 @@ onMounted(loadData)
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column v-if="canManage" label="操作" width="90" fixed="right">
+        <el-table-column v-if="canManage" label="操作" width="90">
           <template #default="{ row }">
             <el-button
               link
@@ -342,12 +399,25 @@ onMounted(loadData)
         </el-form-item>
 
         <el-form-item label="上游模型">
-          <el-input
+          <el-select
             v-model="form.upstream_model"
             data-test="route-upstream-model"
-            maxlength="255"
+            class="full-width"
+            filterable
+            allow-create
+            clearable
+            default-first-option
+            :loading="modelsLoading"
             placeholder="留空则使用客户端请求的模型名称"
-          />
+          >
+            <el-option
+              v-for="model in modelOptions"
+              :key="model"
+              :label="model"
+              :value="model"
+            />
+          </el-select>
+          <div class="field-hint">{{ upstreamModelHint() }}</div>
         </el-form-item>
 
         <el-form-item label="启用">
@@ -389,26 +459,33 @@ onMounted(loadData)
   align-items: flex-start;
   justify-content: space-between;
   gap: 20px;
-  margin-bottom: 22px;
+  margin-bottom: 20px;
 }
 
 .page-heading h2 {
-  margin: 0 0 8px;
-  color: #1f2d3d;
-  font-size: 22px;
+  margin: 0 0 7px;
+  color: var(--gw-text);
+  font-size: 23px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
 }
 
 .page-heading p {
   max-width: 720px;
   margin: 0;
-  color: #8393a7;
-  font-size: 14px;
-  line-height: 1.6;
+  color: var(--gw-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .table-card {
-  border: 1px solid #e8edf4;
-  border-radius: 12px;
+  border: 1px solid var(--gw-border);
+  border-radius: var(--gw-radius-lg);
+  box-shadow: var(--gw-shadow-card);
+}
+
+.table-card :deep(.el-card__body) {
+  padding: 22px 22px 18px;
 }
 
 .load-error {
@@ -418,9 +495,9 @@ onMounted(loadData)
 .pattern {
   padding: 2px 8px;
   border-radius: 5px;
-  background: #f1f5fa;
-  color: #334155;
-  font-size: 12px;
+  background: #eef3fa;
+  color: #33415c;
+  font-size: 11px;
 }
 
 .form-grid {
@@ -435,7 +512,7 @@ onMounted(loadData)
 
 .field-hint {
   margin-top: 6px;
-  color: #98a6b7;
+  color: var(--gw-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
