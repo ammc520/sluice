@@ -278,4 +278,9 @@ func TestAuditorCannotMutateProviders(t *testing.T) {
 	if rr := env.do("auditor", http.MethodGet, "/admin/api/providers", ""); rr.Code != http.StatusOK {
 		t.Fatalf("list got %d", rr.Code)
 	}
+	// Model discovery decrypts the provider key and performs an upstream
+	// request, so a read-only auditor must not be able to trigger it.
+	if rr := env.do("auditor", http.MethodGet, "/admin/api/providers/"+uuid.NewString()+"/models", ""); rr.Code != http.StatusForbidden {
+		t.Fatalf("models got %d", rr.Code)
+	}
 }

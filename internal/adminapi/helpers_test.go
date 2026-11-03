@@ -120,7 +120,7 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.POST("/tokens/:id/rotate", adminauth.RequireRole("operator"), tokens.Rotate)
 
 	authed.GET("/providers", providers.List)
-	authed.GET("/providers/:id/models", providers.Models)
+	authed.GET("/providers/:id/models", adminauth.RequireRole("operator"), providers.Models)
 	authed.POST("/providers", adminauth.RequireRole("operator"), providers.Create)
 	authed.PUT("/providers/:id", adminauth.RequireRole("operator"), providers.Update)
 	authed.DELETE("/providers/:id", adminauth.RequireRole("operator"), providers.Delete)

@@ -484,7 +484,9 @@ func registerAdminRoutes(group *gin.RouterGroup, adminSvc *adminauth.Service, h 
 	authed.GET("/departments", h.departments.List)
 	authed.GET("/tokens", h.tokens.List)
 	authed.GET("/providers", h.providers.List)
-	authed.GET("/providers/:id/models", h.providers.Models)
+	// Model discovery decrypts the stored provider key and calls upstream, so
+	// it is an operator action rather than a read-only audit operation.
+	authed.GET("/providers/:id/models", adminauth.RequireRole("operator"), h.providers.Models)
 	authed.GET("/model-routes", h.routes.List)
 	authed.GET("/dlp-rules", h.dlpRules.List)
 	authed.GET("/audit", h.audit.List)
