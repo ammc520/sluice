@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/store"
 )
 
 // ErrSMTPNotConfigured means the settings table has no smtp entry yet.

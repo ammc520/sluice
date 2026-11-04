@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func summaryURL(from, to time.Time, extra url.Values) string {
@@ -119,11 +119,16 @@ func TestDashboardSummaryAggregates(t *testing.T) {
 		r.StatusCode = http.StatusBadRequest
 	})
 
-	created := mustCreateToken(t, env, defaultTokenBody(env))
-	tokenID := uuid.MustParse(created.TokenID)
-	if _, err := env.pool.Exec(ctx,
-		`UPDATE tokens SET quota_total=$2, quota_used=$3, period_start=$4, quota_period='monthly' WHERE id=$1`,
-		tokenID, 1000, 900, time.Now()); err != nil {
+	mustCreateToken(t, env, defaultTokenBody(env))
+	employeeID := uuid.MustParse(env.employeeID)
+	if _, err := env.pool.Exec(ctx, `
+		INSERT INTO employee_quotas (employee_id, quota_type, quota_period, quota_total,
+			quota_used, period_start)
+		VALUES ($1,'tokens','monthly',1000,900,
+			date_trunc('month', now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai')
+		ON CONFLICT (employee_id) DO UPDATE SET quota_total=EXCLUDED.quota_total,
+			quota_used=EXCLUDED.quota_used, period_start=EXCLUDED.period_start`,
+		employeeID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -194,6 +199,14 @@ func TestDashboardSummaryAggregates(t *testing.T) {
 	if len(summary.Breakdown.Models) != 2 || summary.Breakdown.Models[0].Model != "gpt-4o" || summary.Breakdown.Models[0].Requests != 3 {
 		t.Fatalf("model breakdown %+v", summary.Breakdown.Models)
 	}
+	if summary.Breakdown.Models[0].Errors != 1 {
+		t.Fatalf("model errors %+v", summary.Breakdown.Models[0])
+	}
+	modelTrend := summary.Breakdown.Models[0].Trend
+	if len(modelTrend) != 2 || modelTrend[0].Requests != 2 || modelTrend[0].Tokens != 150 ||
+		modelTrend[1].Requests != 1 || modelTrend[1].Tokens != 30 {
+		t.Fatalf("model trend %+v", modelTrend)
+	}
 
 	if len(summary.TopUsers) != 2 || summary.TopUsers[0].Name != "Alice" || summary.TopUsers[0].Requests != 3 {
 		t.Fatalf("top users %+v", summary.TopUsers)
@@ -260,9 +273,11 @@ func TestDashboardSummaryRangesAndValidation(t *testing.T) {
 		interval   string
 		buckets    int
 	}{
+		{"yesterday", "hour", 24},
 		{"24h", "hour", 24},
 		{"7d", "day", 7},
 		{"30d", "day", 30},
+		{"90d", "day", 90},
 	} {
 		t.Run(tc.rangeValue, func(t *testing.T) {
 			rr := env.do("auditor", http.MethodGet,
@@ -292,7 +307,6 @@ func TestDashboardSummaryRangesAndValidation(t *testing.T) {
 	to := now.Format(time.RFC3339)
 	for _, path := range []string{
 		"/admin/api/dashboard/summary?range=7d&from=" + from,
-		"/admin/api/dashboard/summary?range=90d",
 		"/admin/api/dashboard/summary?range=7d&interval=week",
 		"/admin/api/dashboard/summary?department_id=0",
 		"/admin/api/dashboard/summary?provider_id=nope",
@@ -314,11 +328,16 @@ func TestDepartmentsList(t *testing.T) {
 		t.Fatalf("departments: %d %s", rr.Code, rr.Body.String())
 	}
 	var result struct {
-		Items []departmentDTO `json:"items"`
+		Items           []departmentDTO `json:"items"`
+		UnassignedCount int64           `json:"unassigned_count"`
+		TotalEmployees  int64           `json:"total_employees"`
 	}
 	decodeData(t, rr, &result)
-	if len(result.Items) != 1 || result.Items[0].Name != "Engineering" {
+	if len(result.Items) != 1 || result.Items[0].Name != "Engineering" || result.Items[0].EmployeeCount != 1 {
 		t.Fatalf("departments %+v", result.Items)
+	}
+	if result.UnassignedCount != 0 || result.TotalEmployees != 1 {
+		t.Fatalf("department totals %+v", result)
 	}
 }
 

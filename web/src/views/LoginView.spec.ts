@@ -30,11 +30,14 @@ async function mountLogin() {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/login', component: LoginView },
-      { path: '/dashboard', component: { template: '<div>dashboard</div>' } },
+      { path: '/admin/login', component: LoginView },
+      {
+        path: '/admin/dashboard',
+        component: { template: '<div>dashboard</div>' },
+      },
     ],
   })
-  await router.push('/login')
+  await router.push('/admin/login')
   await router.isReady()
   const wrapper = mount(LoginView, {
     global: { plugins: [pinia, router, ElementPlus] },
@@ -78,7 +81,7 @@ describe('LoginView', () => {
       '用户名或密码错误',
     )
     expect(auth.isAuthenticated).toBe(false)
-    expect(router.currentRoute.value.path).toBe('/login')
+    expect(router.currentRoute.value.path).toBe('/admin/login')
   })
 
   it('stores the signed-in user and navigates after a successful login', async () => {
@@ -95,7 +98,7 @@ describe('LoginView', () => {
 
     expect(auth.user).toEqual(adminUser)
     expect(auth.isSuperAdmin).toBe(true)
-    expect(router.currentRoute.value.path).toBe('/dashboard')
+    expect(router.currentRoute.value.path).toBe('/admin/dashboard')
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(init.body).toBe(
       JSON.stringify({ username: 'admin', password: 'correct-password' }),

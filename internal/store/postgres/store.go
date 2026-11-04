@@ -12,8 +12,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/company/api-key/internal/store"
-	"github.com/company/api-key/migrations"
+	"github.com/company/sluice/internal/store"
+	"github.com/company/sluice/migrations"
 )
 
 // New wraps an existing connection pool. The pool remains owned by the caller.
@@ -35,6 +35,11 @@ type Store struct {
 	Settings    *SettingsStore
 	Departments *DepartmentStore
 	Dashboard   *DashboardStore
+
+	Accounts       *EmployeeAccountStore
+	TokenRequests  *TokenRequestStore
+	EmployeeQuotas *EmployeeQuotaStore
+	EmployeeAudits *EmployeeAuditStore
 }
 
 func newStore(pool *pgxpool.Pool) *Store {
@@ -50,6 +55,11 @@ func newStore(pool *pgxpool.Pool) *Store {
 		Settings:    &SettingsStore{pool: pool},
 		Departments: &DepartmentStore{pool: pool},
 		Dashboard:   &DashboardStore{pool: pool},
+
+		Accounts:       &EmployeeAccountStore{pool: pool},
+		TokenRequests:  &TokenRequestStore{pool: pool},
+		EmployeeQuotas: &EmployeeQuotaStore{pool: pool},
+		EmployeeAudits: &EmployeeAuditStore{pool: pool},
 	}
 }
 

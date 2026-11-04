@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { CircleCheck, Lock, User } from '@element-plus/icons-vue'
 
 import { ApiError } from '../api/client'
-import { safeRedirect } from '../router/redirect'
+import { safeAdminRedirect } from '../router/redirect'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -26,7 +26,7 @@ async function submit(): Promise<void> {
   loading.value = true
   try {
     await auth.login(username, form.password)
-    await router.replace(safeRedirect(route.query.redirect))
+    await router.replace(safeAdminRedirect(route.query.redirect))
   } catch (error) {
     if (error instanceof ApiError) {
       if (error.status === 401) {
@@ -52,8 +52,8 @@ async function submit(): Promise<void> {
     <div class="login-shell">
       <section class="login-intro">
         <div class="intro-brand">
-          <span class="intro-mark">API</span>
-          <span class="intro-brand-name">安全网关 · DLP 控制台</span>
+          <span class="intro-mark">S</span>
+          <span class="intro-brand-name">Sluice · DLP 控制台</span>
         </div>
 
         <span class="intro-badge">企业级访问控制</span>

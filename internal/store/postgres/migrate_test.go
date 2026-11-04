@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/company/api-key/internal/testutil"
+	"github.com/company/sluice/internal/testutil"
 )
 
 func TestMigrationsUpDownUp(t *testing.T) {

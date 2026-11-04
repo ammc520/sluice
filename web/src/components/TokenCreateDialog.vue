@@ -39,6 +39,7 @@ const emit = defineEmits<{
 
 interface TokenForm {
   employee_id: string
+  name: string
   quota_type: QuotaType
   quota_period: QuotaPeriod
   quota_total: number | undefined
@@ -49,6 +50,7 @@ interface TokenForm {
 
 const form = reactive<TokenForm>({
   employee_id: '',
+  name: '',
   quota_type: 'tokens',
   quota_period: 'monthly',
   quota_total: undefined,
@@ -76,6 +78,7 @@ const copyLabel = computed(() => {
 function resetForm(): void {
   const initial = props.initial
   form.employee_id = initial?.employee_id ?? props.employees[0]?.id ?? ''
+  form.name = initial?.name ?? ''
   form.quota_type = initial?.quota_type ?? 'tokens'
   form.quota_period = initial?.quota_period ?? 'monthly'
   form.quota_total = initial?.quota_total ?? undefined
@@ -115,9 +118,14 @@ function close(): void {
 function submitForm(): void {
   validationError.value = ''
   form.employee_id = form.employee_id.trim()
+  form.name = form.name.trim()
 
   if (!form.employee_id) {
     validationError.value = '请选择员工'
+    return
+  }
+  if ([...form.name].length > 40) {
+    validationError.value = 'Key 名称不能超过 40 个字符'
     return
   }
   if (
@@ -144,6 +152,7 @@ function submitForm(): void {
 
   emit('submit', {
     employee_id: form.employee_id,
+    name: form.name,
     quota_type: form.quota_type,
     quota_period: form.quota_period,
     quota_total: form.quota_total ?? null,
@@ -206,7 +215,7 @@ async function copyToken(): Promise<void> {
         <el-alert
           v-if="employees.length === 0"
           data-test="no-employees"
-          title="暂无可用员工，请先在员工管理中创建员工"
+          title="暂无可用员工，请先在团队管理中创建员工"
           type="info"
           :closable="false"
           show-icon
@@ -229,14 +238,23 @@ async function copyToken(): Promise<void> {
         </el-select>
       </el-form-item>
 
+      <el-form-item label="Key 名称">
+        <el-input
+          v-model="form.name"
+          maxlength="40"
+          show-word-limit
+          placeholder="便于识别用途，例如：生产服务、本地开发"
+        />
+      </el-form-item>
+
       <div class="form-grid">
-        <el-form-item label="额度类型">
+        <el-form-item label="单 Key 上限类型">
           <el-select v-model="form.quota_type" class="full-width">
             <el-option label="Token 数" value="tokens" />
             <el-option label="请求数" value="requests" />
           </el-select>
         </el-form-item>
-        <el-form-item label="额度周期">
+        <el-form-item label="单 Key 上限周期">
           <el-select v-model="form.quota_period" class="full-width">
             <el-option label="每日" value="daily" />
             <el-option label="每月" value="monthly" />
@@ -246,13 +264,13 @@ async function copyToken(): Promise<void> {
       </div>
 
       <div class="form-grid">
-        <el-form-item label="额度总量">
+        <el-form-item label="单 Key 上限">
           <el-input-number
             v-model="form.quota_total"
             :min="0"
             :step="1000"
             :controls="false"
-            placeholder="留空表示不限"
+            placeholder="留空表示不限制此 Key"
             class="full-width"
           />
         </el-form-item>
@@ -296,7 +314,8 @@ async function copyToken(): Promise<void> {
       />
 
       <p class="dialog-hint">
-        每个员工可拥有多个 Token；轮换会立即撤销旧 Token 并生成新 Token。
+        员工的所有 Key 共享个人额度，这里的上限只限制单个 Key。
+        轮换会立即撤销旧 Key 并生成新 Key。
       </p>
     </el-form>
 

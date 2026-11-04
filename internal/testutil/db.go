@@ -10,13 +10,17 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/company/api-key/migrations"
+	"github.com/company/sluice/migrations"
 )
 
 const testLockKey int64 = 0x6170692d6b6579 // "api-key"
 
 var tables = []string{
 	"settings",
+	"employee_audit_logs",
+	"token_requests",
+	"employee_sessions",
+	"employee_accounts",
 	"admin_audit_logs",
 	"admin_sessions",
 	"admin_users",
@@ -24,6 +28,7 @@ var tables = []string{
 	"dlp_rules",
 	"model_routes",
 	"upstream_providers",
+	"employee_quotas",
 	"tokens",
 	"employees",
 	"departments",

@@ -1,4 +1,4 @@
-module github.com/company/api-key
+module github.com/company/sluice
 
 go 1.21.0
 

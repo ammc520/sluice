@@ -6,14 +6,16 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/company/api-key/internal/alert"
-	"github.com/company/api-key/internal/audit"
-	"github.com/company/api-key/internal/auth"
-	"github.com/company/api-key/internal/dlp"
-	"github.com/company/api-key/internal/metrics"
-	"github.com/company/api-key/internal/proxy"
-	"github.com/company/api-key/internal/quota"
-	"github.com/company/api-key/internal/store"
+	"github.com/google/uuid"
+
+	"github.com/company/sluice/internal/alert"
+	"github.com/company/sluice/internal/audit"
+	"github.com/company/sluice/internal/auth"
+	"github.com/company/sluice/internal/dlp"
+	"github.com/company/sluice/internal/metrics"
+	"github.com/company/sluice/internal/proxy"
+	"github.com/company/sluice/internal/quota"
+	"github.com/company/sluice/internal/store"
 )
 
 // Authenticator resolves a company token to a principal.
@@ -26,9 +28,10 @@ type Limiter interface {
 	Allow(context.Context, string, int) (bool, time.Duration, error)
 }
 
-// Quota reserves and settles token quota around an upstream call.
+// Quota reserves and settles the employee's shared quota around an upstream
+// call. The token is only the credential (and may carry an optional cap).
 type Quota interface {
-	Reserve(context.Context, *store.Token, quota.Endpoint, int64) (store.Reservation, error)
+	Reserve(context.Context, uuid.UUID, *store.Token, quota.Endpoint, int64) (store.Reservation, error)
 	Settle(context.Context, store.Reservation, int64) error
 }
 

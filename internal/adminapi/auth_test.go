@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,9 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/adminauth"
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/adminauth"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/ratelimit"
+	"github.com/company/sluice/internal/store"
 )
 
 type fakeAdminStore struct {
@@ -91,7 +93,7 @@ func newAuthEnv(t *testing.T) (*gin.Engine, *fakeAdminStore) {
 	gin.SetMode(gin.TestMode)
 	fake := newFakeAdminStore(t)
 	svc := adminauth.New(fake, nil, time.Now, time.Hour)
-	h := NewAuthHandler(svc, false)
+	h := NewAuthHandler(svc, false, nil)
 
 	r := gin.New()
 	r.POST("/login", h.Login)
@@ -144,6 +146,18 @@ func TestLoginHandlerSetsCookies(t *testing.T) {
 	}
 	if session.Value == "" || csrf.Value == "" || session.Value == csrf.Value {
 		t.Fatal("tokens must be present and distinct")
+	}
+	if session.Path != adminauth.SessionCookiePath {
+		t.Fatalf("session cookie path=%q, want %q", session.Path, adminauth.SessionCookiePath)
+	}
+	if csrf.Path != adminauth.CSRFCookiePath {
+		t.Fatalf("csrf cookie path=%q, want %q", csrf.Path, adminauth.CSRFCookiePath)
+	}
+	// Pre-migration root-scoped cookies must be expired on login.
+	for _, c := range rr.Result().Cookies() {
+		if c.Path == adminauth.LegacyCookiePath && c.Value != "" {
+			t.Fatalf("legacy cookie %s not expired: %+v", c.Name, c)
+		}
 	}
 	if !strings.Contains(rr.Body.String(), `"username":"admin"`) {
 		t.Fatalf("body %s", rr.Body.String())
@@ -208,5 +222,49 @@ func TestLogoutRequiresCSRFAndClearsCookies(t *testing.T) {
 	}
 	if len(fake.sessions) != 0 {
 		t.Fatal("session was not deleted")
+	}
+}
+
+// A forged X-Forwarded-For must not give an attacker a fresh login-rate-limit
+// bucket. Only proxies listed in TRUSTED_PROXIES may set the client IP.
+func TestAdminLoginRateLimitIgnoresSpoofedForwardedFor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fake := newFakeAdminStore(t)
+	svc := adminauth.New(fake, ratelimit.NewMemory(), time.Now, time.Hour)
+	h := NewAuthHandler(svc, false, []string{"10.0.0.0/8"})
+	r := gin.New()
+	r.POST("/login", h.Login)
+
+	attempt := func(remote, forwarded string) int {
+		req := httptest.NewRequest(http.MethodPost, "/login",
+			strings.NewReader(`{"username":"admin","password":"wrong-password"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = remote
+		if forwarded != "" {
+			req.Header.Set("X-Forwarded-For", forwarded)
+		}
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	for i := 0; i < 5; i++ {
+		if code := attempt("192.0.2.10:1000", fmt.Sprintf("198.51.100.%d", i+1)); code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d status=%d, want 401", i+1, code)
+		}
+	}
+	if code := attempt("192.0.2.10:2000", "203.0.113.99"); code != http.StatusTooManyRequests {
+		t.Fatalf("sixth attempt status=%d, want 429", code)
+	}
+
+	// When the direct peer is a trusted proxy, the forwarded address is used.
+	if code := attempt("10.0.0.5:3000", "198.51.100.50"); code != http.StatusUnauthorized {
+		t.Fatalf("trusted proxy attempt status=%d, want 401", code)
+	}
+	for i := 0; i < 4; i++ {
+		attempt("10.0.0.5:3000", "198.51.100.50")
+	}
+	if code := attempt("10.0.0.5:3000", "198.51.100.50"); code != http.StatusTooManyRequests {
+		t.Fatalf("trusted proxy sixth attempt status=%d, want 429", code)
 	}
 }

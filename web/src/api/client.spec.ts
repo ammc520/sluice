@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, api, setUnauthorizedHandler } from './client'
+import {
+  ApiError,
+  api,
+  portalApi,
+  setPortalUnauthorizedHandler,
+  setUnauthorizedHandler,
+} from './client'
 
 function response(status: number, body: unknown): Response {
   return {
@@ -26,12 +32,14 @@ describe('api client', () => {
     fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     setUnauthorizedHandler(null)
+    setPortalUnauthorizedHandler(null)
     clearCookies()
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
     setUnauthorizedHandler(null)
+    setPortalUnauthorizedHandler(null)
     clearCookies()
   })
 
@@ -107,6 +115,56 @@ describe('api client', () => {
     )
     await expect(api.get('/auth/me')).rejects.toBeInstanceOf(ApiError)
     expect(handler).toHaveBeenCalledTimes(1)
+  })
+
+  it('routes portal requests through /portal/api with the employee CSRF cookie', async () => {
+    document.cookie = 'csrf_token=admin-csrf'
+    document.cookie = 'employee_csrf=employee-csrf'
+    fetchMock.mockResolvedValue(response(200, { data: { ok: true }, error: null }))
+
+    await portalApi.post('/auth/login', {
+      employee_no: 'E001',
+      password: 'secret',
+    })
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('/portal/api/auth/login')
+    expect(init.headers).toMatchObject({
+      'X-CSRF-Token': 'employee-csrf',
+    })
+  })
+
+  it('keeps admin and portal CSRF cookies isolated', async () => {
+    document.cookie = 'employee_csrf=employee-csrf'
+    fetchMock.mockResolvedValue(response(200, { data: { ok: true }, error: null }))
+
+    await api.post('/auth/login', { username: 'admin', password: 'secret' })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-CSRF-Token']).toBeUndefined()
+  })
+
+  it('notifies each surface only of its own 401 responses', async () => {
+    const adminHandler = vi.fn()
+    const portalHandler = vi.fn()
+    setUnauthorizedHandler(adminHandler)
+    setPortalUnauthorizedHandler(portalHandler)
+
+    fetchMock.mockResolvedValue(
+      response(401, {
+        data: null,
+        error: { code: 'unauthorized', message: 'authentication required' },
+      }),
+    )
+
+    await expect(portalApi.get('/auth/me')).rejects.toBeInstanceOf(ApiError)
+    expect(portalHandler).toHaveBeenCalledTimes(1)
+    expect(adminHandler).not.toHaveBeenCalled()
+
+    await expect(api.get('/auth/me')).rejects.toBeInstanceOf(ApiError)
+    expect(adminHandler).toHaveBeenCalledTimes(1)
+    expect(portalHandler).toHaveBeenCalledTimes(1)
   })
 
   it('falls back to a generic error for non-JSON failures', async () => {

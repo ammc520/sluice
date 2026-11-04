@@ -4,12 +4,12 @@
 
 | 服务 | 作用 | 是否对公网开放 |
 |---|---|---|
-| `caddy` | 自动 HTTPS、静态管理后台、反代 `/v1` 与 `/admin/api` | 仅 80/443 |
-| `gateway` | Go 网关，SQL 迁移、DLP、配额、审计、管理 API | 否 |
+| `caddy` | 自动 HTTPS、静态管理后台与员工门户、反代 `/v1`、`/admin/api`、`/portal/api` | 仅 80/443 |
+| `sluice` | Go 网关，SQL 迁移、DLP、配额、审计、管理 API | 否 |
 | `postgres` | PostgreSQL 16 数据 | 否 |
 | `redis` | 限流与会话缓存（可丢） | 否 |
 
-`postgres`、`redis` 位于 `internal` 网络，没有发布端口；`gateway` 同时接入公网边缘网络和内部网络。数据库和 Redis 不应出现在云安全组或主机防火墙的放行列表里。
+`postgres`、`redis` 位于 `internal` 网络，没有发布端口；`sluice` 同时接入公网边缘网络和内部网络。数据库和 Redis 不应出现在云安全组或主机防火墙的放行列表里。
 
 ## 1. 前置条件
 
@@ -17,14 +17,14 @@
 - 已安装 Docker Engine 24+ 与 Compose v2.24+（`docker compose version`；`env_file.required` 需要该版本）。
 - 一个域名（例如 `api.example.com`）的 A/AAAA 记录已指向服务器公网 IP。
 - 云安全组与主机防火墙只放行：SSH（限制来源 IP）、TCP 80、TCP 443、UDP 443。
-- 仓库代码（`git clone` 或发布包）位于例如 `/opt/api-gateway`。
+- 仓库代码（`git clone` 或发布包）位于例如 `/opt/sluice`。
 
 > 证书由 Caddy 通过 ACME 自动申请和续期。80 端口必须保持可达，用于 HTTP→HTTPS 跳转和证书校验；`caddy_data` 卷保存证书，不能随意删除。
 
 ## 2. 准备配置
 
 ```bash
-cd /opt/api-gateway
+cd /opt/sluice
 cp .env.production.example .env.production
 chmod 600 .env.production
 ```
@@ -59,24 +59,24 @@ openssl rand -hex 24             # 填入 POSTGRES_PASSWORD
 
 `MASTER_KEY` 应保存在密码管理器或密钥管理服务中，不要只留在服务器本地。`BACKUP_PASSPHRASE` 是另一个独立密钥，必须与 `MASTER_KEY` 不同。
 
-`TRUSTED_PROXIES` 必须覆盖 Caddy 所在容器的网段。启动后可执行 `docker network inspect api-gateway_edge` 查看 `Subnet`；如果与默认的 `172.16.0.0/12` 不重叠，按实际网段修改。配置错误会导致员工来源 IP 被识别为 Caddy 容器地址，影响 IP 白名单和审计。
+`TRUSTED_PROXIES` 必须覆盖 Caddy 所在容器的网段。启动后可执行 `docker network inspect sluice_edge` 查看 `Subnet`；如果与默认的 `172.16.0.0/12` 不重叠，按实际网段修改。配置错误会导致员工来源 IP 被识别为 Caddy 容器地址，影响 IP 白名单和审计。
 
 ## 3. 首次启动
 
 ```bash
-cd /opt/api-gateway
+cd /opt/sluice
 docker compose --env-file .env.production build
 docker compose --env-file .env.production up -d
 ```
 
-启动顺序由健康检查保证：`postgres`/`redis` 健康 → `gateway`（自动执行嵌入的 goose 迁移并创建 bootstrap 管理员）健康 → `caddy` 启动并申请证书。
+启动顺序由健康检查保证：`postgres`/`redis` 健康 → `sluice`（自动执行嵌入的 goose 迁移并创建 bootstrap 管理员）健康 → `caddy` 启动并申请证书。
 
 检查状态：
 
 ```bash
 docker compose --env-file .env.production ps
-docker compose --env-file .env.production logs --tail=100 gateway
-docker compose --env-file .env.production exec gateway \
+docker compose --env-file .env.production logs --tail=100 sluice
+docker compose --env-file .env.production exec sluice \
   wget -qO- http://127.0.0.1:8080/readyz
 curl -fsS -o /dev/null -w '%{http_code}\n' https://api.example.com/
 curl -sS -o /dev/null -w '%{http_code}\n' https://api.example.com/v1/models
@@ -84,12 +84,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://api.example.com/v1/models
 
 预期：`/readyz` 返回 `{"status":"ready"}`；首页返回 200；未携带 Token 的 `/v1/models` 返回 401。`/healthz`、`/readyz`、`/metrics` 对公网返回 404，只能从容器内部访问。
 
-首次登录管理后台 `https://api.example.com`：
+首次登录管理后台 `https://api.example.com/admin/login`（员工门户入口为 `/portal/login`）：
 
 1. 使用 `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` 登录。
 2. 进入「管理员账号」，为超级管理员重置强密码（会使当前会话失效，需要重新登录）。
 3. 从 `.env.production` 删除 `BOOTSTRAP_ADMIN_PASSWORD`。
-4. `docker compose --env-file .env.production up -d gateway` 重建容器使变量生效。
+4. `docker compose --env-file .env.production up -d sluice` 重建容器使变量生效。
 
 ## 4. 数据库角色与最小权限
 
@@ -141,8 +141,8 @@ AUDIT_MAINTENANCE_DATABASE_URL=postgres://gateway_maint:<URL编码后的密码>@
 重启网关并验证：
 
 ```bash
-docker compose --env-file .env.production up -d gateway
-docker compose --env-file .env.production exec gateway \
+docker compose --env-file .env.production up -d sluice
+docker compose --env-file .env.production exec sluice \
   wget -qO- http://127.0.0.1:8080/readyz
 
 # 应用角色不能删除审计（应报 permission denied）
@@ -157,10 +157,10 @@ docker compose --env-file .env.production exec -T postgres \
 网关启动时会自动执行嵌入的 goose 迁移。启用最小权限后，`gateway_app` 不能修改超级用户拥有的表，因此**每次升级必须在启动新版本前，用专用迁移命令执行待迁移脚本**，否则应用会因 DDL 权限不足而启动失败：
 
 ```bash
-cd /opt/api-gateway
+cd /opt/sluice
 
 # 1) 先备份
-BACKUP_PASSPHRASE_FILE=/etc/api-gateway/backup.passphrase \
+BACKUP_PASSPHRASE_FILE=/etc/sluice/backup.passphrase \
   bash deploy/backup.sh
 
 # 2) 构建新镜像
@@ -170,7 +170,7 @@ docker compose --env-file .env.production build
 #    镜像内的 /app/migrate 只执行嵌入的 goose 迁移，不启动 HTTP 服务。
 docker compose --env-file .env.production run --rm --no-deps \
   -e MIGRATE_DATABASE_URL="postgres://gateway:<超级用户密码>@postgres:5432/gateway?sslmode=disable" \
-  --entrypoint /app/migrate gateway
+  --entrypoint /app/migrate sluice
 
 # 4) 重新授予新表/新序列权限（迁移会创建新对象）
 docker compose --env-file .env.production exec -T postgres \
@@ -193,10 +193,10 @@ docker compose --env-file .env.production up -d
 镜像回退：升级前给当前镜像打标签，出问题时恢复标签并重启网关：
 
 ```bash
-docker tag api-gateway:latest api-gateway:rollback
+docker tag sluice:latest sluice:rollback
 # 升级后如需回退
-docker tag api-gateway:rollback api-gateway:latest
-docker compose --env-file .env.production up -d --no-build gateway
+docker tag sluice:rollback sluice:latest
+docker compose --env-file .env.production up -d --no-build sluice
 ```
 
 若新版本已经执行了不兼容迁移，必须同时恢复数据库。
@@ -206,43 +206,43 @@ docker compose --env-file .env.production up -d --no-build gateway
 - 网关日志为 JSON，写入 stdout，由 Docker `json-file` 驱动轮转（50 MB × 5）。查看：
 
   ```bash
-  docker compose --env-file .env.production logs -f --tail=200 gateway
+  docker compose --env-file .env.production logs -f --tail=200 sluice
   ```
 
 - 审计数据只写入 PostgreSQL，不写 stdout；排查时使用管理后台「审计日志」。
 - `/metrics` 不在 Caddy 路由中，公网不可达。从内网采集：
 
   ```bash
-  docker compose --env-file .env.production exec gateway \
+  docker compose --env-file .env.production exec sluice \
     wget -qO- http://127.0.0.1:8080/metrics
   ```
 
   如需 Prometheus 采集，可在同一 Docker 网络部署采集器，或通过 SSH 隧道/VPN 访问，不要把 `/metrics` 暴露到公网。
 - 建议告警：网关容器不健康、5xx 比例、磁盘使用率 > 80%、审计 spool 文件持续增长、PostgreSQL 连接失败、证书续期失败。
-- `docker compose ps` 中 `gateway`/`caddy` 应为 `healthy`。
+- `docker compose ps` 中 `sluice`/`caddy` 应为 `healthy`。
 
 ## 7. 每日备份
 
 1. 在服务器上创建独立口令文件（不要与 `MASTER_KEY` 相同）：
 
    ```bash
-   sudo install -d -m 700 /etc/api-gateway
-   openssl rand -base64 48 | sudo tee /etc/api-gateway/backup.passphrase >/dev/null
-   sudo chmod 600 /etc/api-gateway/backup.passphrase
+   sudo install -d -m 700 /etc/sluice
+   openssl rand -base64 48 | sudo tee /etc/sluice/backup.passphrase >/dev/null
+   sudo chmod 600 /etc/sluice/backup.passphrase
    ```
 
 2. 手动执行一次并确认输出：
 
    ```bash
-   BACKUP_PASSPHRASE_FILE=/etc/api-gateway/backup.passphrase \
+   BACKUP_PASSPHRASE_FILE=/etc/sluice/backup.passphrase \
      bash deploy/backup.sh
-   sha256sum -c backups/gateway-*.dump.enc.sha256
+   sha256sum -c backups/sluice-*.dump.enc.sha256
    ```
 
 3. 配置 cron（每天 03:17，按实际路径调整）：
 
    ```cron
-   17 3 * * * cd /opt/api-gateway && BACKUP_PASSPHRASE_FILE=/etc/api-gateway/backup.passphrase RCLONE_REMOTE=cos:company-backups/api-gateway /usr/bin/bash deploy/backup.sh >> /var/log/api-gateway-backup.log 2>&1
+   17 3 * * * cd /opt/sluice && BACKUP_PASSPHRASE_FILE=/etc/sluice/backup.passphrase RCLONE_REMOTE=cos:company-backups/sluice /usr/bin/bash deploy/backup.sh >> /var/log/sluice-backup.log 2>&1
    ```
 
    `backup.sh` 使用 `pg_dump -Fc`，在落盘前用 AES-256（PBKDF2）加密，保留本地 7 天；设置了 `RCLONE_REMOTE` 时上传到 COS/S3。远端建议再配置生命周期规则。任何一步失败脚本都会非零退出，cron 会记录错误。

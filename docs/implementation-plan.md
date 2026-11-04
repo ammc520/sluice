@@ -1,4 +1,4 @@
-# 企业 API 安全网关与 DLP 监测系统实施计划
+# Sluice 企业 API 安全网关与 DLP 监测系统实施计划
 
 **Goal:** 建成一个生产可用的统一大模型 API 网关，支持公司 Token、配额、IP/速率限制、OpenAI/Anthropic/DeepSeek 转发、DLP 阻断/脱敏、异步审计和管理后台。
 
@@ -35,7 +35,7 @@
 ## File Map
 
 ```text
-cmd/gateway/main.go                 # 进程入口、依赖装配、优雅关闭
+cmd/sluice/main.go                 # 进程入口、依赖装配、优雅关闭
 internal/config/                    # 环境变量加载与校验
 internal/server/                    # Gin 引擎、路由挂载、健康检查
 internal/store/                     # 领域模型与存储接口
@@ -63,7 +63,7 @@ docs/operations/                    # 上线、恢复、员工接入文档
 ### Task 1: 项目骨架、配置、健康检查
 
 **Files:**
-- Create: `go.mod`, `cmd/gateway/main.go`, `internal/config/config.go`, `internal/config/config_test.go`, `internal/server/server.go`, `internal/server/server_test.go`, `Makefile`, `.gitignore`, `.env.example`, `compose.dev.yml`
+- Create: `go.mod`, `cmd/sluice/main.go`, `internal/config/config.go`, `internal/config/config_test.go`, `internal/server/server.go`, `internal/server/server_test.go`, `Makefile`, `.gitignore`, `.env.example`, `compose.dev.yml`
 
 **Interfaces:**
 - Produces:
@@ -80,7 +80,7 @@ docs/operations/                    # 上线、恢复、员工接入文档
 ```bash
 cd D:/work/api-key
 git init -b main
-go mod init github.com/company/api-key
+go mod init github.com/company/sluice
 go get github.com/gin-gonic/gin@v1.10.0
 go get github.com/jackc/pgx/v5@v5.7.1
 go get github.com/google/uuid@v1.6.0
@@ -141,7 +141,7 @@ Expected: FAIL，`Load`/`New` 未定义。
 
 `config.Load` 使用 `os.Getenv`；必填 `DATABASE_URL`、`MASTER_KEY`；`MASTER_KEY` 必须是 base64 编码的 32 字节；`MasterKeyPrevious` 可为空但若非空也必须 32 字节；`AUDIT_MAINTENANCE_DATABASE_URL` 可选，未设置时保留任务禁用并记录警告；默认值：`LISTEN_ADDR=:8080`、`REQUEST_BODY_LIMIT_BYTES=2097152`、`CAPTURE_LIMIT_BYTES=262144`、`AUDIT_RETENTION_DAYS=180`、`AUDIT_SPOOL_DIR=./spool`、`COOKIE_SECURE=true`。
 `server.New` 创建 Gin engine，挂载 `/healthz`、`/readyz`，使用 `http.Server` 并设置 `ReadHeaderTimeout=10s`、`IdleTimeout=120s`。`Run` 监听 `SIGINT`/`SIGTERM`，`Shutdown` 超时 10 秒。
-`cmd/gateway/main.go` 加载配置、构造 `slog` JSON logger、调用 `Run`。
+`cmd/sluice/main.go` 加载配置、构造 `slog` JSON logger、调用 `Run`。
 
 `compose.dev.yml` 提供 `postgres:16`（用户/密码/库均为 `gateway`，端口 5432）和 `redis:7`（端口 6379），用于本地开发和测试。
 
@@ -1475,7 +1475,7 @@ git commit -m "feat: add settings and admin user management APIs"
 
 **Interfaces:**
 - Consumes: Task 7/8/9 的 `/admin/api` 契约。
-- Produces: Vue 3 + TS 应用；`apiClient` 封装 `credentials: "include"` 和 `X-CSRF-Token`（从 `csrf_token` Cookie 读取）；路由守卫在未登录时跳转 `/login`。
+- Produces: Vue 3 + TS 应用；`apiClient` 封装 `credentials: "include"` 和 `X-CSRF-Token`（从 `csrf_token` Cookie 读取）；路由守卫在未登录时跳转 `/admin/login`。
 
 - [ ] **Step 1: 初始化前端并写失败测试**
 
@@ -1529,7 +1529,7 @@ Expected: FAIL，`apiClient` 未定义。
 - `auth` store：`me()`、`login()`、`logout()`、`isAuthenticated`。
 - `AdminLayout`：侧边栏菜单（概览、员工、Token、上游、模型路由、DLP、审计、设置、管理员），顶部用户/退出。
 - `LoginView`：用户名密码、错误提示。
-- 路由守卫：除 `/login` 外要求登录。
+- 路由守卫：除 `/admin/login`（管理端）与 `/portal/login`（员工端）外要求登录。
 - 为尚未实现的菜单页创建最小占位 view（只渲染标题），保证本任务结束时可构建；后续任务替换。
 - Dashboard 占位以待 Task 22。
 
@@ -1694,7 +1694,7 @@ git commit -m "feat: add dashboard, audit, and settings pages"
 ### Task 23: 部署产物、Caddy、备份与运维文档
 
 **Files:**
-- Create: `deploy/gateway.Dockerfile`, `deploy/web.Dockerfile`, `deploy/Caddyfile`, `deploy/backup.sh`, `docker-compose.yml`, `.env.production.example`, `docs/operations/deploy.md`, `docs/operations/restore.md`, `docs/operations/employee-onboarding.md`
+- Create: `deploy/sluice.Dockerfile`, `deploy/web.Dockerfile`, `deploy/Caddyfile`, `deploy/backup.sh`, `docker-compose.yml`, `.env.production.example`, `docs/operations/deploy.md`, `docs/operations/restore.md`, `docs/operations/employee-onboarding.md`
 - Modify: `Makefile`
 
 **Interfaces:**
@@ -1720,12 +1720,12 @@ Expected: FAIL，`docker-compose.yml` 不存在。
 
 - [ ] **Step 3: 实现**
 
-- `gateway.Dockerfile`：多阶段 `golang:1.23-alpine` 构建，`distroless` 或 `alpine` 运行；非 root；复制迁移；暴露 8080。
+- `sluice.Dockerfile`：多阶段 `golang:1.23-alpine` 构建，`distroless` 或 `alpine` 运行；非 root；复制迁移；暴露 8080。
 - `web.Dockerfile`：`node:24-alpine` 构建 `web/dist`，复制到 Caddy 镜像。
-- `docker-compose.yml`：`caddy`、`gateway`、`postgres`、`redis`；健康检查；卷；`env_file`；`depends_on`；只暴露 80/443。
+- `docker-compose.yml`：`caddy`、`sluice`、`postgres`、`redis`；健康检查；卷；`env_file`；`depends_on`；只暴露 80/443。
 - `Caddyfile`：
   - `{$DOMAIN}` 自动 HTTPS。
-  - `/v1/*` 与 `/admin/api/*` 反代 `gateway:8080`；`flush_interval -1`。
+  - `/v1/*` 与 `/admin/api/*` 反代 `sluice:8080`；`flush_interval -1`。
   - 其他路径静态 `web/dist`，SPA fallback `try_files {path} /index.html`。
   - `/metrics` 默认不对外路由；需要采集时只允许内网来源或走独立监听端口。
   - 安全头：HSTS、`X-Content-Type-Options`、`Referrer-Policy`。
@@ -1814,7 +1814,7 @@ git commit -m "feat: add Prometheus metrics"
 
 **Files:**
 - Create: `internal/e2e/gateway_test.go`, `internal/e2e/load_test.go`, `docs/operations/live-verification.md`, `scripts/live_check.sh`
-- Modify: `cmd/gateway/main.go`（最终依赖装配）、`internal/server/server.go`（挂载 `/v1` 和 `/admin/api`）
+- Modify: `cmd/sluice/main.go`（最终依赖装配）、`internal/server/server.go`（挂载 `/v1` 和 `/admin/api`）
 
 **Interfaces:**
 - Consumes: 全部任务。
@@ -1849,7 +1849,7 @@ Expected: FAIL。
 
 - [ ] **Step 3: 完成依赖装配与 E2E 实现**
 
-- `cmd/gateway/main.go` 构造：pgx pool、Redis client、crypto、stores、quota、limiter fallback、auth、adminauth、DLP engine（启动时 `EnsureBuiltinRules` 并 Reload）、resolver、proxy、audit writer、audit retention worker（使用独立的 `AUDIT_MAINTENANCE_DATABASE_URL` 连接池，未配置则禁用）、alert worker、admin API、gateway handler。
+- `cmd/sluice/main.go` 构造：pgx pool、Redis client、crypto、stores、quota、limiter fallback、auth、adminauth、DLP engine（启动时 `EnsureBuiltinRules` 并 Reload）、resolver、proxy、audit writer、audit retention worker（使用独立的 `AUDIT_MAINTENANCE_DATABASE_URL` 连接池，未配置则禁用）、alert worker、admin API、gateway handler。
 - 路由：`/v1/*` 使用 gateway handler；`POST /admin/api/auth/login` 公开；`/admin/api/auth/logout|me` 需 Session，logout 另外要求 CSRF；其余 `/admin/api/*` 依次挂 `RequireSession`、写操作 `RequireCSRF`、按资源 `RequireRole`；`/healthz`、`/readyz`、`/metrics`。
 - 启动时 Redis ping 失败只记录警告；Postgres ping 失败则退出。
 - E2E 使用 `httptest.NewServer` 启动完整 server；mock upstream 验证 forwarded body/headers。

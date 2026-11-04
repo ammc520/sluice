@@ -51,11 +51,21 @@ type DashboardProviderStat struct {
 	P95LatencyMS int64
 }
 
+// DashboardModelTrendPoint is one bucket of usage for a single model.
+type DashboardModelTrendPoint struct {
+	Bucket   time.Time
+	Requests int64
+	Tokens   int64
+	Errors   int64
+}
+
 // DashboardModelStat is usage attributed to one requested model.
 type DashboardModelStat struct {
 	Model    string
 	Requests int64
 	Tokens   int64
+	Errors   int64
+	Trend    []DashboardModelTrendPoint
 }
 
 // DashboardUserStat is usage attributed to one employee.

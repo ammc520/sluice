@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/store"
 )
 
 // TokenHandler serves employee token administration endpoints.
@@ -34,6 +34,7 @@ func NewTokenHandler(tokens store.TokenStore, employees store.EmployeeStore, clo
 type tokenDTO struct {
 	ID           string     `json:"id"`
 	EmployeeID   string     `json:"employee_id"`
+	Name         string     `json:"name"`
 	TokenPrefix  string     `json:"token_prefix"`
 	TokenLast4   string     `json:"token_last4"`
 	QuotaType    string     `json:"quota_type"`
@@ -57,6 +58,7 @@ func toTokenDTO(t *store.Token) tokenDTO {
 	return tokenDTO{
 		ID:           t.ID.String(),
 		EmployeeID:   t.EmployeeID.String(),
+		Name:         t.Name,
 		TokenPrefix:  t.TokenPrefix,
 		TokenLast4:   t.TokenLast4,
 		QuotaType:    t.QuotaType,
@@ -75,6 +77,7 @@ func toTokenDTO(t *store.Token) tokenDTO {
 
 type tokenPayload struct {
 	EmployeeID   string   `json:"employee_id"`
+	Name         string   `json:"name"`
 	QuotaType    string   `json:"quota_type"`
 	QuotaPeriod  string   `json:"quota_period"`
 	QuotaTotal   *int64   `json:"quota_total"`
@@ -86,6 +89,10 @@ type tokenPayload struct {
 // normalize validates the payload, applies defaults, and returns the parsed
 // expiration time.
 func (p *tokenPayload) normalize(now time.Time) (*time.Time, string) {
+	p.Name = strings.TrimSpace(p.Name)
+	if len([]rune(p.Name)) > 40 {
+		return nil, "name is too long"
+	}
 	p.QuotaType = strings.TrimSpace(p.QuotaType)
 	if p.QuotaType == "" {
 		p.QuotaType = "tokens"
@@ -241,6 +248,7 @@ func (h *TokenHandler) Create(c *gin.Context) {
 	}
 	t := &store.Token{
 		EmployeeID:   employeeID,
+		Name:         payload.Name,
 		TokenHash:    hash,
 		TokenPrefix:  prefix,
 		TokenLast4:   last4,
@@ -283,6 +291,7 @@ func (h *TokenHandler) Update(c *gin.Context) {
 		writeStoreError(c, err, "token not found", "token conflict", "employee not found")
 		return
 	}
+	t.Name = payload.Name
 	t.QuotaType = payload.QuotaType
 	t.QuotaPeriod = payload.QuotaPeriod
 	t.QuotaTotal = payload.QuotaTotal
@@ -342,6 +351,7 @@ func (h *TokenHandler) Rotate(c *gin.Context) {
 	}
 	fresh := &store.Token{
 		EmployeeID:   old.EmployeeID,
+		Name:         old.Name,
 		TokenHash:    hash,
 		TokenPrefix:  prefix,
 		TokenLast4:   last4,

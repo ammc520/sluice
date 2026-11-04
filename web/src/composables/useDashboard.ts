@@ -1,4 +1,5 @@
 import {
+  computed,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -18,12 +19,16 @@ const STALE_MS = AUTO_REFRESH_MS - 5_000
 
 export interface DashboardFilters {
   range: DashboardRange
+  from: string
+  to: string
   departmentId: number | null
   providerId: string
 }
 
 export function useDashboard(initial: DashboardFilters) {
   const range = ref<DashboardRange>(initial.range)
+  const from = ref(initial.from)
+  const to = ref(initial.to)
   const departmentId = ref<number | null>(initial.departmentId)
   const providerId = ref(initial.providerId)
 
@@ -37,7 +42,16 @@ export function useDashboard(initial: DashboardFilters) {
   let timer: ReturnType<typeof setInterval> | null = null
 
   function buildQuery(): string {
-    const params = new URLSearchParams({ range: range.value })
+    const params = new URLSearchParams()
+    if (range.value === 'custom') {
+      // A custom range is only valid once both bounds are set; skipping keeps
+      // the transient state while the date picker syncs from firing a 400.
+      if (!from.value || !to.value) return ''
+      params.set('from', from.value)
+      params.set('to', to.value)
+    } else {
+      params.set('range', range.value)
+    }
     if (departmentId.value !== null) {
       params.set('department_id', String(departmentId.value))
     }
@@ -45,7 +59,11 @@ export function useDashboard(initial: DashboardFilters) {
     return params.toString()
   }
 
+  const query = computed(() => buildQuery())
+
   async function load(silent = false): Promise<void> {
+    const queryString = query.value
+    if (!queryString) return
     const seq = ++requestSeq
     if (!silent) {
       if (data.value) refreshing.value = true
@@ -54,7 +72,7 @@ export function useDashboard(initial: DashboardFilters) {
     error.value = ''
     try {
       const result = await api.get<DashboardSummary>(
-        `/dashboard/summary?${buildQuery()}`,
+        `/dashboard/summary?${queryString}`,
       )
       if (seq !== requestSeq) return
       data.value = result
@@ -100,7 +118,7 @@ export function useDashboard(initial: DashboardFilters) {
     document.removeEventListener('visibilitychange', onVisibilityChange)
   }
 
-  watch([range, departmentId, providerId], () => {
+  watch(query, () => {
     void load()
   })
 
@@ -113,6 +131,8 @@ export function useDashboard(initial: DashboardFilters) {
 
   return {
     range,
+    from,
+    to,
     departmentId,
     providerId,
     data,

@@ -119,7 +119,7 @@ function openCreate(): void {
   editingToken.value = null
   createdToken.value = null
   dialogError.value = ''
-  dialogTitle.value = '新增 Token'
+  dialogTitle.value = '新增 Key'
   dialogVisible.value = true
 }
 
@@ -127,7 +127,7 @@ function openEdit(token: Token): void {
   editingToken.value = token
   createdToken.value = null
   dialogError.value = ''
-  dialogTitle.value = '编辑 Token'
+  dialogTitle.value = '编辑 Key'
   dialogVisible.value = true
 }
 
@@ -135,7 +135,7 @@ function resetDialog(): void {
   editingToken.value = null
   createdToken.value = null
   dialogError.value = ''
-  dialogTitle.value = '新增 Token'
+  dialogTitle.value = '新增 Key'
 }
 
 async function saveToken(payload: TokenPayload): Promise<void> {
@@ -145,14 +145,14 @@ async function saveToken(payload: TokenPayload): Promise<void> {
     if (editingToken.value) {
       await api.put<Token>(`/tokens/${editingToken.value.id}`, payload)
       dialogVisible.value = false
-      ElMessage.success('Token 设置已更新')
+      ElMessage.success('Key 设置已更新')
       await loadTokens()
       return
     }
 
     const result = await api.post<TokenCreateResult>('/tokens', payload)
     createdToken.value = result.token
-    dialogTitle.value = 'Token 已创建'
+    dialogTitle.value = 'Key 已创建'
     await loadTokens()
   } catch (error) {
     dialogError.value = apiErrorMessage(error)
@@ -165,7 +165,7 @@ async function revokeToken(token: Token): Promise<void> {
   try {
     await ElMessageBox.confirm(
       `撤销后，使用 ${token.token_prefix}…${token.token_last4} 的请求将立即失败，且无法恢复。`,
-      '确认撤销 Token',
+      '确认撤销 Key',
       {
         type: 'warning',
         confirmButtonText: '确认撤销',
@@ -178,18 +178,18 @@ async function revokeToken(token: Token): Promise<void> {
 
   try {
     await api.post<Token>(`/tokens/${token.id}/revoke`)
-    ElMessage.success('Token 已撤销')
+    ElMessage.success('Key 已撤销')
     await loadTokens()
   } catch (error) {
-    ElMessage.error(apiErrorMessage(error, '撤销 Token 失败'))
+    ElMessage.error(apiErrorMessage(error, '撤销 Key 失败'))
   }
 }
 
 async function rotateToken(token: Token): Promise<void> {
   try {
     await ElMessageBox.confirm(
-      '轮换会立即撤销旧 Token 并生成一个新的 Token，使用旧 Token 的客户端需要更新配置。',
-      '确认轮换 Token',
+      '轮换会立即撤销旧 Key 并生成一个新的 Key，使用旧 Key 的客户端需要更新配置。',
+      '确认轮换 Key',
       {
         type: 'warning',
         confirmButtonText: '确认轮换',
@@ -207,11 +207,11 @@ async function rotateToken(token: Token): Promise<void> {
     editingToken.value = null
     createdToken.value = result.token
     dialogError.value = ''
-    dialogTitle.value = 'Token 已轮换'
+    dialogTitle.value = 'Key 已轮换'
     dialogVisible.value = true
     await loadTokens()
   } catch (error) {
-    ElMessage.error(apiErrorMessage(error, '轮换 Token 失败'))
+    ElMessage.error(apiErrorMessage(error, '轮换 Key 失败'))
   }
 }
 
@@ -225,8 +225,10 @@ onMounted(() => {
   <div class="tokens-page">
     <section class="page-heading">
       <div>
-        <h2>Token 管理</h2>
-        <p>签发员工访问 Token，并配置额度、速率、有效期与来源 IP 限制。</p>
+        <h2>Key 管理</h2>
+        <p>
+          员工的所有 Key 共享个人额度；这里的单 Key 上限只限制单个 Key，速率、有效期与 IP 限制按 Key 生效。
+        </p>
       </div>
       <el-button
         v-if="canManage"
@@ -235,7 +237,7 @@ onMounted(() => {
         :icon="Plus"
         @click="openCreate"
       >
-        新增 Token
+        新增 Key
       </el-button>
     </section>
 
@@ -284,19 +286,22 @@ onMounted(() => {
             <div class="employee-cell">{{ employeeLabel(row.employee_id) }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="Token" min-width="175">
+        <el-table-column label="Key" min-width="200">
           <template #default="{ row }">
-            <code class="token-prefix">{{ row.token_prefix }}…{{ row.token_last4 }}</code>
+            <div class="token-cell">
+              <strong v-if="row.name" class="token-name">{{ row.name }}</strong>
+              <code class="token-prefix">{{ row.token_prefix }}…{{ row.token_last4 }}</code>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="额度" width="140">
+        <el-table-column label="单 Key 上限" width="140">
           <template #default="{ row }">
             <span class="nowrap">
               {{ quotaPeriodLabel(row.quota_period) }} · {{ quotaTypeLabel(row.quota_type) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="已用 / 总量" width="120">
+        <el-table-column label="Key 已用 / 上限" width="130">
           <template #default="{ row }">{{ quotaUsedText(row) }}</template>
         </el-table-column>
         <el-table-column prop="rate_limit_rpm" label="RPM" width="55" />
@@ -328,7 +333,7 @@ onMounted(() => {
           </template>
         </el-table-column>
         <template #empty>
-          <el-empty description="暂无 Token" :image-size="80" />
+          <el-empty description="暂无 Key" :image-size="80" />
         </template>
       </el-table>
 
@@ -428,6 +433,18 @@ onMounted(() => {
 
 .row-actions :deep(.el-button + .el-button) {
   margin-left: 0;
+}
+
+.token-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.token-name {
+  color: #26384d;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .token-prefix {

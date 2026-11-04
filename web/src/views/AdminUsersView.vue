@@ -14,6 +14,7 @@ import type {
   AdminUserUpdatePayload,
   ResetPasswordResult,
 } from '../api/types'
+import { ADMIN_HOME, ADMIN_LOGIN } from '../router/paths'
 import { useAuthStore } from '../stores/auth'
 import { formatDateTime } from '../utils/datetime'
 
@@ -202,12 +203,12 @@ async function saveEdit(): Promise<void> {
     if (isSelf(user)) {
       if (editForm.value.status === 0) {
         auth.clear()
-        await router.replace('/login')
+        await router.replace(ADMIN_LOGIN)
         return
       }
       await auth.me()
       if (!auth.isSuperAdmin) {
-        await router.replace('/dashboard')
+        await router.replace(ADMIN_HOME)
         return
       }
     }
@@ -243,7 +244,7 @@ async function toggleStatus(user: AdminUser): Promise<void> {
     })
     if (isSelf(user) && nextStatus === 0) {
       auth.clear()
-      await router.replace('/login')
+      await router.replace(ADMIN_LOGIN)
       return
     }
     ElMessage.success(nextStatus === 0 ? '管理员已禁用' : '管理员已启用')
@@ -283,7 +284,7 @@ async function resetPassword(): Promise<void> {
     ElMessage.success('密码已重置，该账号的现有会话已失效')
     if (isSelf(user)) {
       auth.clear()
-      await router.replace('/login')
+      await router.replace(ADMIN_LOGIN)
     }
   } catch (error) {
     resetError.value = apiErrorMessage(error)

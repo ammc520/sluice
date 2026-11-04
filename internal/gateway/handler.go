@@ -16,13 +16,13 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/alert"
-	"github.com/company/api-key/internal/audit"
-	"github.com/company/api-key/internal/auth"
-	"github.com/company/api-key/internal/dlp"
-	"github.com/company/api-key/internal/proxy"
-	"github.com/company/api-key/internal/quota"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/alert"
+	"github.com/company/sluice/internal/audit"
+	"github.com/company/sluice/internal/auth"
+	"github.com/company/sluice/internal/dlp"
+	"github.com/company/sluice/internal/proxy"
+	"github.com/company/sluice/internal/quota"
+	"github.com/company/sluice/internal/store"
 )
 
 // DefaultMaxBodyBytes is the request body limit.
@@ -240,10 +240,15 @@ func (h *Handler) Handle(c *gin.Context) {
 			h.misconfigured(c, st, "quota service is not configured")
 			return
 		}
-		reservation, err = h.deps.Quota.Reserve(c.Request.Context(), &principal.Token, endpoint, meta.MaxTokens)
+		reservation, err = h.deps.Quota.Reserve(c.Request.Context(), principal.Employee.ID, &principal.Token, endpoint, meta.MaxTokens)
 		if err != nil {
 			if errors.Is(err, store.ErrQuotaExceeded) {
-				h.fail(c, st, http.StatusPaymentRequired, "quota_exceeded", "Quota exceeded", nil)
+				scope := "employee"
+				var exceeded *store.QuotaExceededError
+				if errors.As(err, &exceeded) && exceeded.Scope != "" {
+					scope = exceeded.Scope
+				}
+				h.failQuota(c, st, scope)
 				return
 			}
 			h.logger.Error("quota reservation failed", "request_id", reqID, "error", err)
@@ -347,7 +352,7 @@ func (h *Handler) settle(principal *auth.Principal, endpoint quota.Endpoint, res
 }
 
 func settlementActual(token *store.Token, endpoint quota.Endpoint, reservation store.Reservation, usage proxy.Usage) int64 {
-	if token.QuotaType == "requests" {
+	if reservation.QuotaType == "requests" {
 		return 1
 	}
 	if endpoint == quota.EndpointMetadata {
@@ -407,6 +412,23 @@ func (h *Handler) fail(c *gin.Context, st *requestState, status int, code, messa
 	}})
 }
 
+// failQuota reports which pool rejected the call without treating an exceeded
+// key cap as an exhausted employee allowance.
+func (h *Handler) failQuota(c *gin.Context, st *requestState, scope string) {
+	if c.Writer.Written() {
+		return
+	}
+	st.event.StatusCode = http.StatusPaymentRequired
+	st.event.ErrorCode = "quota_exceeded"
+	c.Header("Content-Type", "application/json; charset=utf-8")
+	c.JSON(http.StatusPaymentRequired, errorEnvelope{Error: apiError{
+		Code:      "quota_exceeded",
+		Message:   "Quota exceeded",
+		RequestID: st.event.RequestID,
+		Scope:     scope,
+	}})
+}
+
 func (h *Handler) misconfigured(c *gin.Context, st *requestState, detail string) {
 	h.logger.Error("gateway is misconfigured", "request_id", st.event.RequestID, "detail", detail)
 	h.fail(c, st, http.StatusInternalServerError, "internal_error", "Internal gateway error", nil)
@@ -458,6 +480,7 @@ type apiError struct {
 	Code      string   `json:"code"`
 	Message   string   `json:"message"`
 	RequestID string   `json:"request_id"`
+	Scope     string   `json:"scope,omitempty"`
 	Rules     []string `json:"rules,omitempty"`
 }
 

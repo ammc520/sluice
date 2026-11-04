@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/company/api-key/internal/store/postgres"
+	"github.com/company/sluice/internal/store/postgres"
 )
 
 func main() {

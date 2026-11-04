@@ -15,4 +15,9 @@ type (
 	SettingsStore   struct{ pool *pgxpool.Pool }
 	DepartmentStore struct{ pool *pgxpool.Pool }
 	DashboardStore  struct{ pool *pgxpool.Pool }
+
+	EmployeeAccountStore struct{ pool *pgxpool.Pool }
+	TokenRequestStore    struct{ pool *pgxpool.Pool }
+	EmployeeQuotaStore   struct{ pool *pgxpool.Pool }
+	EmployeeAuditStore   struct{ pool *pgxpool.Pool }
 )

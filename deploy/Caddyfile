@@ -31,16 +31,17 @@
 	}
 
 	# Streaming (SSE) requires Caddy to flush each upstream chunk immediately.
-	@gateway path /v1/* /admin/api/*
+	@gateway path /v1/* /admin/api/* /portal/api/*
 	handle @gateway {
-		reverse_proxy gateway:8080 {
+		reverse_proxy sluice:8080 {
 			flush_interval -1
 			header_up X-Real-IP {remote_host}
 		}
 	}
 
-	# The admin SPA: history-mode routes fall back to index.html. Compression
-	# stays on the static path so it never wraps an SSE response.
+	# The SPA bundle (admin at /admin, portal at /portal): history-mode routes
+	# fall back to index.html. Compression stays on the static path so it never
+	# wraps an SSE response.
 	handle {
 		root * /srv
 		header Cache-Control "no-cache"

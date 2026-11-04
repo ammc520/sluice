@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func testRecord(id string) *store.AuditRecord {

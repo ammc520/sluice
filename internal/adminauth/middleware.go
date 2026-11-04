@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 const (
@@ -17,6 +17,17 @@ const (
 	SessionCookie = "admin_session"
 	CSRFCookie    = "csrf_token"
 	CSRFHeader    = "X-CSRF-Token"
+
+	// SessionCookiePath keeps the administrator session away from /portal,
+	// /v1 and the admin SPA's static assets.
+	SessionCookiePath = "/admin/api"
+	// CSRFCookiePath must cover the admin SPA (which reads the token with
+	// document.cookie) as well as every /admin/api request that echoes it.
+	CSRFCookiePath = "/admin"
+	// LegacyCookiePath is the pre-migration scope. Login and logout expire
+	// cookies left under it so a stale root-scoped session cannot shadow the
+	// narrowly scoped one.
+	LegacyCookiePath = "/"
 )
 
 // RequireSession rejects requests without a valid session cookie.

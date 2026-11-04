@@ -1,47 +1,65 @@
 package adminapi
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/portalcfg"
+	"github.com/company/sluice/internal/store"
 )
 
 // EmployeeHandler serves employee administration endpoints.
 type EmployeeHandler struct {
 	employees store.EmployeeStore
+	quotas    store.EmployeeQuotaStore
+	cfg       *portalcfg.Provider
 }
 
-// NewEmployeeHandler creates the employee handler.
-func NewEmployeeHandler(employees store.EmployeeStore) *EmployeeHandler {
-	return &EmployeeHandler{employees: employees}
+// NewEmployeeHandler creates the employee handler. quotas and cfg may be nil
+// in tests; newly created employees then get the built-in default allowance.
+func NewEmployeeHandler(employees store.EmployeeStore, quotas store.EmployeeQuotaStore, cfg *portalcfg.Provider) *EmployeeHandler {
+	return &EmployeeHandler{employees: employees, quotas: quotas, cfg: cfg}
 }
 
 type employeeDTO struct {
-	ID           string    `json:"id"`
-	EmployeeNo   string    `json:"employee_no"`
-	Name         string    `json:"name"`
-	Email        string    `json:"email"`
-	DepartmentID *int64    `json:"department_id"`
-	Status       int16     `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID               string     `json:"id"`
+	EmployeeNo       string     `json:"employee_no"`
+	Name             string     `json:"name"`
+	Email            string     `json:"email"`
+	DepartmentID     *int64     `json:"department_id"`
+	DepartmentName   string     `json:"department_name"`
+	Status           int16      `json:"status"`
+	QuotaType        *string    `json:"quota_type"`
+	QuotaPeriod      *string    `json:"quota_period"`
+	QuotaTotal       *int64     `json:"quota_total"`
+	QuotaUsed        int64      `json:"quota_used"`
+	QuotaPeriodStart *time.Time `json:"quota_period_start"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 func toEmployeeDTO(e *store.Employee) employeeDTO {
 	return employeeDTO{
-		ID:           e.ID.String(),
-		EmployeeNo:   e.EmployeeNo,
-		Name:         e.Name,
-		Email:        e.Email,
-		DepartmentID: e.DepartmentID,
-		Status:       e.Status,
-		CreatedAt:    e.CreatedAt,
-		UpdatedAt:    e.UpdatedAt,
+		ID:               e.ID.String(),
+		EmployeeNo:       e.EmployeeNo,
+		Name:             e.Name,
+		Email:            e.Email,
+		DepartmentID:     e.DepartmentID,
+		DepartmentName:   e.DepartmentName,
+		Status:           e.Status,
+		QuotaType:        e.QuotaType,
+		QuotaPeriod:      e.QuotaPeriod,
+		QuotaTotal:       e.QuotaTotal,
+		QuotaUsed:        e.QuotaUsed,
+		QuotaPeriodStart: e.QuotaPeriodStart,
+		CreatedAt:        e.CreatedAt,
+		UpdatedAt:        e.UpdatedAt,
 	}
 }
 
@@ -92,6 +110,28 @@ func (h *EmployeeHandler) List(c *gin.Context) {
 		}
 		filter.DepartmentID = &id
 	}
+	if raw := strings.TrimSpace(c.Query("unassigned")); raw != "" {
+		switch raw {
+		case "1", "true":
+			filter.Unassigned = true
+		default:
+			BadRequest(c, "invalid unassigned")
+			return
+		}
+	}
+	if filter.DepartmentID != nil && filter.Unassigned {
+		BadRequest(c, "department_id and unassigned are mutually exclusive")
+		return
+	}
+	if raw := strings.TrimSpace(c.Query("status")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || (value != 0 && value != 1) {
+			BadRequest(c, "invalid status")
+			return
+		}
+		status := int16(value)
+		filter.Status = &status
+	}
 
 	items, total, err := h.employees.List(c.Request.Context(), filter)
 	if err != nil {
@@ -128,11 +168,32 @@ func (h *EmployeeHandler) Create(c *gin.Context) {
 		DepartmentID: payload.DepartmentID,
 		Status:       status,
 	}
-	if err := h.employees.Create(c.Request.Context(), e); err != nil {
+	ctx := c.Request.Context()
+	if err := h.employees.Create(ctx, e); err != nil {
 		writeStoreError(c, err, "employee not found", "employee_no already exists", "department does not exist")
 		return
 	}
-	OK(c, http.StatusCreated, toEmployeeDTO(e))
+	h.ensureQuota(ctx, e.ID)
+	stored, err := h.employees.Get(ctx, e.ID)
+	if err != nil {
+		InternalError(c)
+		return
+	}
+	OK(c, http.StatusCreated, toEmployeeDTO(stored))
+}
+
+// ensureQuota seeds the employee's shared allowance from the portal policy.
+// Failure is not fatal: the gateway lazily creates the row on first use.
+func (h *EmployeeHandler) ensureQuota(ctx context.Context, employeeID uuid.UUID) {
+	if h.quotas == nil {
+		return
+	}
+	defaults := store.EmployeeQuotaDefaults{Type: "tokens", Period: "monthly", Total: 1_000_000}
+	if h.cfg != nil {
+		quota := h.cfg.Get(ctx).DefaultQuota
+		defaults = store.EmployeeQuotaDefaults{Type: quota.Type, Period: quota.Period, Total: quota.Total}
+	}
+	_, _ = h.quotas.Ensure(ctx, employeeID, defaults)
 }
 
 // Update handles PUT /admin/api/employees/:id.
@@ -168,5 +229,10 @@ func (h *EmployeeHandler) Update(c *gin.Context) {
 		writeStoreError(c, err, "employee not found", "employee_no already exists", "department does not exist")
 		return
 	}
-	OK(c, http.StatusOK, toEmployeeDTO(e))
+	stored, err := h.employees.Get(ctx, e.ID)
+	if err != nil {
+		InternalError(c)
+		return
+	}
+	OK(c, http.StatusOK, toEmployeeDTO(stored))
 }

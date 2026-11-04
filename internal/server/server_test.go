@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/company/api-key/internal/config"
-	"github.com/company/api-key/internal/metrics"
+	"github.com/company/sluice/internal/config"
+	"github.com/company/sluice/internal/metrics"
 )
 
 func TestHealthz(t *testing.T) {

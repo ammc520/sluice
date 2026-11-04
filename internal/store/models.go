@@ -8,20 +8,29 @@ import (
 
 // Department groups employees for reporting and filtering.
 type Department struct {
-	ID   int64
-	Name string
+	ID            int64
+	Name          string
+	EmployeeCount int64
 }
 
-// Employee is a company employee who may hold API tokens.
+// Employee is a company employee who may hold API tokens. The quota fields
+// are a read-only projection of the employee_quotas row; nil means the row has
+// not been created yet and will be lazily initialised on first use.
 type Employee struct {
-	ID           uuid.UUID
-	EmployeeNo   string
-	Name         string
-	Email        string
-	DepartmentID *int64
-	Status       int16
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                uuid.UUID
+	EmployeeNo        string
+	Name              string
+	Email             string
+	DepartmentID      *int64
+	DepartmentName    string
+	Status            int16
+	QuotaType         *string
+	QuotaPeriod       *string
+	QuotaTotal        *int64
+	QuotaUsed         int64
+	QuotaPeriodStart  *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // Token is a company-issued gateway token. Only the SHA-256 hash of the
@@ -29,6 +38,7 @@ type Employee struct {
 type Token struct {
 	ID           uuid.UUID
 	EmployeeID   uuid.UUID
+	Name         string
 	TokenHash    string
 	TokenPrefix  string
 	TokenLast4   string
@@ -157,11 +167,157 @@ type AdminAuditLog struct {
 	CreatedAt  time.Time
 }
 
-// Reservation is a quota hold created before an upstream request.
+// EmployeeAccount is the portal credential record for an employee. It is
+// separate from Employee so organisation data can be edited without touching
+// credentials.
+type EmployeeAccount struct {
+	EmployeeID         uuid.UUID
+	PasswordHash       string
+	MustChangePassword bool
+	FailedAttempts     int
+	LockedUntil        *time.Time
+	LastLoginAt        *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// EmployeeSession is a server-side portal session. Only hashes are stored.
+type EmployeeSession struct {
+	ID         uuid.UUID
+	EmployeeID uuid.UUID
+	TokenHash  string
+	CSRFHash   string
+	IP         string
+	UserAgent  string
+	ExpiresAt  time.Time
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+}
+
+// EmployeeQuota is the shared, employee-level allowance. Every key held by the
+// employee consumes this single counter. QuotaTotal is required; zero means
+// calls are blocked until an administrator raises it.
+type EmployeeQuota struct {
+	EmployeeID         uuid.UUID
+	EmployeeNo         string
+	EmployeeName       string
+	DepartmentName     string
+	QuotaType          string
+	QuotaPeriod        string
+	QuotaTotal         int64
+	QuotaUsed          int64
+	PeriodStart        time.Time
+	UpdatedBy          *uuid.UUID
+	UpdatedAt          time.Time
+}
+
+// EmployeeQuotaDefaults seeds a missing employee quota row.
+type EmployeeQuotaDefaults struct {
+	Type   string
+	Period string
+	Total  int64
+}
+
+// TokenRequest is an employee application for a gateway token or a quota
+// increase. Kind='quota' requests are granted immediately on approval;
+// kind='token' requests are the legacy flow that still requires a claim.
+// EmployeeNo, EmployeeName, and DepartmentName are populated by admin listings.
+type TokenRequest struct {
+	ID                 uuid.UUID
+	EmployeeID         uuid.UUID
+	EmployeeNo         string
+	EmployeeName       string
+	DepartmentName     string
+	Kind               string
+	Reason             string
+	RequestedTotal     *int64
+	Status             string
+	ReviewedBy         *uuid.UUID
+	ReviewNote         string
+	ReviewedAt         *time.Time
+	GrantedQuotaType   *string
+	GrantedQuotaPeriod *string
+	GrantedTotal       *int64
+	GrantedRPM         *int
+	GrantedExpiresAt   *time.Time
+	TokenID            *uuid.UUID
+	ExpiresAt          time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+}
+
+// TokenRequestGrant is the administrator decision attached to an approved
+// request.
+type TokenRequestGrant struct {
+	QuotaType     string
+	QuotaPeriod   string
+	QuotaTotal    *int64
+	RateLimitRPM  int
+	ExpiresAt     *time.Time
+	Note          string
+	ClaimDeadline time.Time
+}
+
+// EmployeeAuditLog records a self-service action taken in the employee portal.
+type EmployeeAuditLog struct {
+	ID         int64
+	EmployeeID uuid.UUID
+	Action     string
+	TargetType string
+	TargetID   string
+	Detail     []byte
+	ClientIP   string
+	CreatedAt  time.Time
+}
+
+// PortalUsageSummary is the employee-scoped equivalent of the admin KPI block.
+type PortalUsageSummary struct {
+	Requests         int64 `json:"requests"`
+	TotalTokens      int64 `json:"total_tokens"`
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+	Errors           int64 `json:"errors"`
+	DLPRequests      int64 `json:"dlp_requests"`
+	DLPHits          int64 `json:"dlp_hits"`
+	P95LatencyMS     int64 `json:"p95_latency_ms"`
+}
+
+// PortalUsagePoint is one day of employee usage.
+type PortalUsagePoint struct {
+	Day      time.Time
+	Requests int64
+	Tokens   int64
+	Errors   int64
+}
+
+// PortalModelPoint is one day of usage for a single model.
+type PortalModelPoint struct {
+	Day      time.Time
+	Requests int64
+	Tokens   int64
+}
+
+// PortalModelUsage is the per-model breakdown shown on the portal overview.
+// Days only contains days with traffic; clients fill the gaps.
+type PortalModelUsage struct {
+	Model    string
+	Requests int64
+	Tokens   int64
+	Errors   int64
+	Days     []PortalModelPoint
+}
+
+// Reservation is a quota hold created before an upstream request. PeriodStart
+// is the employee quota period that was charged; TokenPeriodStart is the key's
+// own reporting period and may be nil when the key has no cap.
 type Reservation struct {
-	TokenID     uuid.UUID
-	PeriodStart time.Time
-	Reserved    int64
+	EmployeeID       uuid.UUID
+	TokenID          uuid.UUID
+	QuotaType        string
+	PeriodStart      time.Time
+	TokenPeriodStart *time.Time
+	Reserved         int64
+	TokenReserved    int64
 }
 
 // DashboardOverview is the aggregate summary for a period.

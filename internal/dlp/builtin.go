@@ -6,7 +6,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 // Built-in rule names. EnsureBuiltinRules matches existing rows by these

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func testRule(name, pattern, action string, priority int) store.DLPRule {

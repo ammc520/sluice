@@ -12,10 +12,10 @@ test-db:
 	TEST_DATABASE_URL=postgres://gateway:gateway@localhost:5432/gateway_test?sslmode=disable go test ./... -count=1
 
 build:
-	go build -o bin/gateway ./cmd/gateway
+	go build -o bin/sluice ./cmd/sluice
 
 run:
-	go run ./cmd/gateway
+	go run ./cmd/sluice
 
 dev-up:
 	docker compose -f compose.dev.yml up -d

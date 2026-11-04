@@ -7,19 +7,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
-const tokenColumns = `id, employee_id, token_hash, token_prefix, token_last4, quota_type, quota_period,
-	quota_total, quota_used, period_start, rate_limit_rpm, ip_allowlist, status, expires_at, created_at, last_used_at`
+const tokenColumns = `id, employee_id, name, token_hash, token_prefix, token_last4, quota_type,
+	quota_period, quota_total, quota_used, period_start, rate_limit_rpm, ip_allowlist,
+	status, expires_at, created_at, last_used_at`
 
 func itoa(n int) string { return strconv.Itoa(n) }
 
 func scanToken(row rowScanner) (*store.Token, error) {
 	var t store.Token
 	var allowlist []byte
-	err := row.Scan(&t.ID, &t.EmployeeID, &t.TokenHash, &t.TokenPrefix, &t.TokenLast4,
+	err := row.Scan(&t.ID, &t.EmployeeID, &t.Name, &t.TokenHash, &t.TokenPrefix, &t.TokenLast4,
 		&t.QuotaType, &t.QuotaPeriod, &t.QuotaTotal, &t.QuotaUsed, &t.PeriodStart,
 		&t.RateLimitRPM, &allowlist, &t.Status, &t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt)
 	if err != nil {
@@ -32,7 +34,12 @@ func scanToken(row rowScanner) (*store.Token, error) {
 	return &t, nil
 }
 
-func (s *TokenStore) Create(ctx context.Context, t *store.Token) error {
+// tokenInserter is satisfied by both pgxpool.Pool and pgx.Tx.
+type tokenInserter interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func insertToken(ctx context.Context, db tokenInserter, t *store.Token) error {
 	if t.ID == uuid.Nil {
 		t.ID = uuid.New()
 	}
@@ -40,16 +47,91 @@ func (s *TokenStore) Create(ctx context.Context, t *store.Token) error {
 		t.IPAllowlist = []string{}
 	}
 	allowlist, _ := json.Marshal(t.IPAllowlist)
-	return mapError(s.pool.QueryRow(ctx, `
-		INSERT INTO tokens (id, employee_id, token_hash, token_prefix, token_last4, quota_type,
-			quota_period, quota_total, quota_used, period_start, rate_limit_rpm, ip_allowlist,
-			status, expires_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+	return mapError(db.QueryRow(ctx, `
+		INSERT INTO tokens (id, employee_id, name, token_hash, token_prefix, token_last4,
+			quota_type, quota_period, quota_total, quota_used, period_start, rate_limit_rpm,
+			ip_allowlist, status, expires_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING created_at`,
-		t.ID, t.EmployeeID, t.TokenHash, t.TokenPrefix, t.TokenLast4, t.QuotaType,
+		t.ID, t.EmployeeID, t.Name, t.TokenHash, t.TokenPrefix, t.TokenLast4, t.QuotaType,
 		t.QuotaPeriod, t.QuotaTotal, t.QuotaUsed, t.PeriodStart, t.RateLimitRPM, allowlist,
 		t.Status, t.ExpiresAt,
 	).Scan(&t.CreatedAt))
+}
+
+func (s *TokenStore) Create(ctx context.Context, t *store.Token) error {
+	return insertToken(ctx, s.pool, t)
+}
+
+// CreateWithLimit serializes creation per employee by locking the employee
+// row, then counts active keys and inserts in the same transaction. A plain
+// count-then-insert in the handler would let concurrent requests exceed the
+// limit.
+func (s *TokenStore) CreateWithLimit(ctx context.Context, t *store.Token, maxActive int, now time.Time) error {
+	if maxActive <= 0 {
+		return store.ErrTokenLimitReached
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var employeeExists int
+	if err := tx.QueryRow(ctx, `SELECT 1 FROM employees WHERE id=$1 FOR UPDATE`, t.EmployeeID).
+		Scan(&employeeExists); err != nil {
+		return mapError(err)
+	}
+	var active int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM tokens
+		WHERE employee_id=$1 AND status=1 AND (expires_at IS NULL OR expires_at > $2)`,
+		t.EmployeeID, now).Scan(&active); err != nil {
+		return err
+	}
+	if active >= maxActive {
+		return store.ErrTokenLimitReached
+	}
+	if err := insertToken(ctx, tx, t); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Rotate locks the old key, verifies that it is still active and unexpired,
+// inserts the replacement, and revokes the old key in one transaction. The
+// row lock makes concurrent rotations of the same key serialize; the second
+// request sees status=0 and fails instead of minting an extra live key.
+func (s *TokenStore) Rotate(ctx context.Context, employeeID, oldID uuid.UUID, fresh *store.Token, now time.Time) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var status int16
+	var expiresAt *time.Time
+	if err := tx.QueryRow(ctx,
+		`SELECT status, expires_at FROM tokens WHERE id=$1 AND employee_id=$2 FOR UPDATE`,
+		oldID, employeeID).Scan(&status, &expiresAt); err != nil {
+		if isNoRows(err) {
+			return store.ErrNotFound
+		}
+		return mapError(err)
+	}
+	if status != 1 {
+		return store.ErrTokenRevoked
+	}
+	if expiresAt != nil && !expiresAt.After(now) {
+		return store.ErrTokenExpired
+	}
+	if err := insertToken(ctx, tx, fresh); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE tokens SET status=0 WHERE id=$1`, oldID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *TokenStore) Get(ctx context.Context, id uuid.UUID) (*store.Token, error) {
@@ -63,10 +145,11 @@ func (s *TokenStore) FindByHash(ctx context.Context, hash string) (*store.Token,
 func (s *TokenStore) Update(ctx context.Context, t *store.Token) error {
 	allowlist, _ := json.Marshal(t.IPAllowlist)
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE tokens SET quota_type=$2, quota_period=$3, quota_total=$4, quota_used=$5,
-			period_start=$6, rate_limit_rpm=$7, ip_allowlist=$8, status=$9, expires_at=$10
+		UPDATE tokens SET name=$2, quota_type=$3, quota_period=$4, quota_total=$5,
+			quota_used=$6, period_start=$7, rate_limit_rpm=$8, ip_allowlist=$9,
+			status=$10, expires_at=$11
 		WHERE id=$1`,
-		t.ID, t.QuotaType, t.QuotaPeriod, t.QuotaTotal, t.QuotaUsed, t.PeriodStart,
+		t.ID, t.Name, t.QuotaType, t.QuotaPeriod, t.QuotaTotal, t.QuotaUsed, t.PeriodStart,
 		t.RateLimitRPM, allowlist, t.Status, t.ExpiresAt)
 	if err != nil {
 		return mapError(err)
@@ -227,6 +310,15 @@ func (s *TokenStore) SettleQuota(ctx context.Context, r store.Reservation, actua
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *TokenStore) CountActiveByEmployee(ctx context.Context, employeeID uuid.UUID, now time.Time) (int, error) {
+	var count int
+	err := s.pool.QueryRow(ctx, `
+		SELECT count(*) FROM tokens
+		WHERE employee_id=$1 AND status=1 AND (expires_at IS NULL OR expires_at > $2)`,
+		employeeID, now).Scan(&count)
+	return count, err
 }
 
 func (s *TokenStore) Touch(ctx context.Context, id uuid.UUID, at time.Time) error {

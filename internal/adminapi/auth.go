@@ -7,19 +7,23 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/company/api-key/internal/adminauth"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/adminauth"
+	"github.com/company/sluice/internal/auth"
+	"github.com/company/sluice/internal/store"
 )
 
 // AuthHandler exposes administrator login/logout/me endpoints.
 type AuthHandler struct {
-	svc          *adminauth.Service
-	cookieSecure bool
+	svc            *adminauth.Service
+	cookieSecure   bool
+	trustedProxies []string
 }
 
-// NewAuthHandler creates the auth handler.
-func NewAuthHandler(svc *adminauth.Service, cookieSecure bool) *AuthHandler {
-	return &AuthHandler{svc: svc, cookieSecure: cookieSecure}
+// NewAuthHandler creates the auth handler. trustedProxies is the same CIDR
+// list used by the gateway, so login rate limiting cannot be bypassed with a
+// forged X-Forwarded-For header.
+func NewAuthHandler(svc *adminauth.Service, cookieSecure bool, trustedProxies []string) *AuthHandler {
+	return &AuthHandler{svc: svc, cookieSecure: cookieSecure, trustedProxies: trustedProxies}
 }
 
 type loginRequest struct {
@@ -55,7 +59,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	sessionToken, csrfToken, user, err := h.svc.Login(c.Request.Context(), req.Username, req.Password, c.ClientIP())
+	sessionToken, csrfToken, user, err := h.svc.Login(c.Request.Context(), req.Username, req.Password,
+		auth.ClientIP(c.Request, h.trustedProxies))
 	if err != nil {
 		switch {
 		case errors.Is(err, adminauth.ErrRateLimited):
@@ -72,24 +77,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	maxAge := int(h.svc.TTL() / time.Second)
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     adminauth.SessionCookie,
-		Value:    sessionToken,
-		Path:     "/",
-		MaxAge:   maxAge,
-		HttpOnly: true,
-		Secure:   h.cookieSecure,
-		SameSite: http.SameSiteStrictMode,
-	})
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     adminauth.CSRFCookie,
-		Value:    csrfToken,
-		Path:     "/",
-		MaxAge:   maxAge,
-		HttpOnly: false,
-		Secure:   h.cookieSecure,
-		SameSite: http.SameSiteStrictMode,
-	})
+	// Expire pre-migration root-scoped cookies first. Browsers send the
+	// longer path first, but leaving a stale duplicate behind makes logout
+	// and session validation ambiguous.
+	clearLegacyCookies(c, h.cookieSecure)
+	setCookie(c, adminauth.SessionCookie, sessionToken, adminauth.SessionCookiePath, maxAge, true, h.cookieSecure)
+	setCookie(c, adminauth.CSRFCookie, csrfToken, adminauth.CSRFCookiePath, maxAge, false, h.cookieSecure)
 	OK(c, http.StatusOK, gin.H{"user": toAdminUserDTO(user), "expires_in": maxAge})
 }
 
@@ -100,8 +93,9 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		InternalError(c)
 		return
 	}
-	clearCookie(c, adminauth.SessionCookie, h.cookieSecure, true)
-	clearCookie(c, adminauth.CSRFCookie, h.cookieSecure, false)
+	clearCookie(c, adminauth.SessionCookie, adminauth.SessionCookiePath, h.cookieSecure, true)
+	clearCookie(c, adminauth.CSRFCookie, adminauth.CSRFCookiePath, h.cookieSecure, false)
+	clearLegacyCookies(c, h.cookieSecure)
 	OK(c, http.StatusOK, gin.H{"logged_out": true})
 }
 
@@ -115,14 +109,25 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	OK(c, http.StatusOK, gin.H{"user": toAdminUserDTO(user)})
 }
 
-func clearCookie(c *gin.Context, name string, secure, httpOnly bool) {
+func setCookie(c *gin.Context, name, value, path string, maxAge int, httpOnly, secure bool) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     name,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
+		Value:    value,
+		Path:     path,
+		MaxAge:   maxAge,
 		HttpOnly: httpOnly,
 		Secure:   secure,
 		SameSite: http.SameSiteStrictMode,
 	})
+}
+
+func clearCookie(c *gin.Context, name, path string, secure, httpOnly bool) {
+	setCookie(c, name, "", path, -1, httpOnly, secure)
+}
+
+// clearLegacyCookies expires the root-scoped cookies written before admin
+// routes moved under /admin.
+func clearLegacyCookies(c *gin.Context, secure bool) {
+	clearCookie(c, adminauth.SessionCookie, adminauth.LegacyCookiePath, secure, true)
+	clearCookie(c, adminauth.CSRFCookie, adminauth.LegacyCookiePath, secure, false)
 }
