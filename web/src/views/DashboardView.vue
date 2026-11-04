@@ -24,6 +24,7 @@ import BreakdownPanel from '../components/dashboard/BreakdownPanel.vue'
 import DLPPanel from '../components/dashboard/DLPPanel.vue'
 import IncidentFeed from '../components/dashboard/IncidentFeed.vue'
 import MetricCard from '../components/dashboard/MetricCard.vue'
+import ModelUsagePanel from '../components/dashboard/ModelUsagePanel.vue'
 import QuotaPressurePanel from '../components/dashboard/QuotaPressurePanel.vue'
 import TopUsersTable from '../components/dashboard/TopUsersTable.vue'
 import TrendPanel from '../components/dashboard/TrendPanel.vue'
@@ -32,6 +33,7 @@ import {
   useDashboard,
   type DashboardFilters,
 } from '../composables/useDashboard'
+import { ADMIN_ROOT } from '../router/paths'
 import { formatDateTime, toShanghaiDate } from '../utils/datetime'
 import {
   formatClock,
@@ -44,26 +46,84 @@ const router = useRouter()
 
 const rangeOptions: Array<{ label: string; value: DashboardRange }> = [
   { label: '今日', value: 'today' },
+  { label: '昨天', value: 'yesterday' },
   { label: '近 24 小时', value: '24h' },
   { label: '近 7 天', value: '7d' },
   { label: '近 30 天', value: '30d' },
+  { label: '近 90 天', value: '90d' },
+  { label: '自定义', value: 'custom' },
 ]
 const rangeValues = new Set<DashboardRange>([
   'today',
+  'yesterday',
   '24h',
   '7d',
   '30d',
+  '90d',
+  'custom',
 ])
+
+const dayFormat = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
+function dayKey(date: Date): string {
+  return dayFormat.format(date)
+}
+
+function shiftDayKey(day: string, delta: number): string {
+  const cursor = new Date(`${day}T00:00:00Z`)
+  cursor.setUTCDate(cursor.getUTCDate() + delta)
+  return cursor.toISOString().slice(0, 10)
+}
+
+function parseDateParam(raw: string | null): string | null {
+  return raw && /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null
+}
+
+function customBounds(range: [string, string]): { from: string; to: string } {
+  return {
+    from: `${range[0]}T00:00:00+08:00`,
+    to: `${range[1]}T23:59:59+08:00`,
+  }
+}
+
+function initialCustomRange(): [string, string] {
+  const params = new URLSearchParams(window.location.search)
+  if (params.get('range') !== 'custom') {
+    const today = dayKey(new Date())
+    return [shiftDayKey(today, -6), today]
+  }
+  const rawFrom = parseDateParam(params.get('from'))
+  const rawTo = parseDateParam(params.get('to'))
+  if (rawFrom && rawTo && rawFrom <= rawTo) return [rawFrom, rawTo]
+  const today = dayKey(new Date())
+  return [shiftDayKey(today, -6), today]
+}
 
 function initialFilters(): DashboardFilters {
   const params = new URLSearchParams(window.location.search)
   const rawRange = params.get('range') as DashboardRange | null
   const rawDepartment = Number(params.get('department_id') ?? '')
+  const rawFrom = parseDateParam(params.get('from'))
+  const rawTo = parseDateParam(params.get('to'))
+  let selected: DashboardRange =
+    rawRange && rangeValues.has(rawRange) ? rawRange : '24h'
+  let bounds: { from: string; to: string } | null = null
+  if (selected === 'custom') {
+    if (rawFrom && rawTo && rawFrom <= rawTo) {
+      bounds = customBounds([rawFrom, rawTo])
+    } else {
+      selected = '24h'
+    }
+  }
   return {
-    range:
-      rawRange && rangeValues.has(rawRange)
-        ? rawRange
-        : '24h',
+    range: selected,
+    from: bounds?.from ?? '',
+    to: bounds?.to ?? '',
     departmentId:
       Number.isInteger(rawDepartment) && rawDepartment > 0
         ? rawDepartment
@@ -74,6 +134,8 @@ function initialFilters(): DashboardFilters {
 
 const {
   range,
+  from,
+  to,
   departmentId,
   providerId,
   data,
@@ -83,6 +145,26 @@ const {
   lastUpdated,
   refresh,
 } = useDashboard(initialFilters())
+
+const customRange = ref<[string, string]>(initialCustomRange())
+
+watch([range, customRange], () => {
+  if (range.value !== 'custom') {
+    from.value = ''
+    to.value = ''
+    return
+  }
+  const bounds = customBounds(customRange.value)
+  from.value = bounds.from
+  to.value = bounds.to
+})
+
+function disabledDate(date: Date): boolean {
+  const today = dayKey(new Date())
+  const earliest = shiftDayKey(today, -89)
+  const key = dayKey(date)
+  return key > today || key < earliest
+}
 
 const departments = ref<Department[]>([])
 const providers = ref<Provider[]>([])
@@ -114,6 +196,13 @@ const providerModel = computed<string>({
 function persistFilters(): void {
   const params = new URLSearchParams(window.location.search)
   params.set('range', range.value)
+  if (range.value === 'custom') {
+    params.set('from', customRange.value[0])
+    params.set('to', customRange.value[1])
+  } else {
+    params.delete('from')
+    params.delete('to')
+  }
   if (departmentId.value !== null) {
     params.set('department_id', String(departmentId.value))
   } else {
@@ -126,7 +215,7 @@ function persistFilters(): void {
   window.history.replaceState(window.history.state, '', url)
 }
 
-watch([range, departmentId, providerId], persistFilters)
+watch([range, customRange, departmentId, providerId], persistFilters)
 
 async function loadLookups(): Promise<void> {
   try {
@@ -228,16 +317,6 @@ const providerRows = computed(() =>
   })),
 )
 
-const modelRows = computed(() =>
-  (data.value?.breakdown.models ?? []).map((item) => ({
-    key: item.model || 'unspecified',
-    label:
-      item.model && item.model !== '未知' ? item.model : '未指定模型',
-    value: item.requests,
-    tokens: item.tokens,
-  })),
-)
-
 const lastUpdatedLabel = computed(() =>
   lastUpdated.value ? formatClock(lastUpdated.value) : '—',
 )
@@ -262,18 +341,21 @@ function auditQuery(extra: Record<string, string>): Record<string, string> {
 
 function openEmployeeAudit(employeeId: string): void {
   void router.push({
-    path: '/audit',
+    path: `${ADMIN_ROOT}/audit`,
     query: auditQuery({ employee_id: employeeId }),
   })
 }
 
 function openTokens(employeeId: string): void {
-  void router.push({ path: '/tokens', query: { employee_id: employeeId } })
+  void router.push({
+    path: `${ADMIN_ROOT}/tokens`,
+    query: { employee_id: employeeId },
+  })
 }
 
 function openIncident(incident: DashboardIncident): void {
   void router.push({
-    path: '/audit',
+    path: `${ADMIN_ROOT}/audit`,
     query: auditQuery({
       employee_id: incident.employee_id,
       audit_id: String(incident.id),
@@ -321,6 +403,19 @@ onMounted(() => {
             {{ option.label }}
           </el-radio-button>
         </el-radio-group>
+        <el-date-picker
+          v-if="range === 'custom'"
+          v-model="customRange"
+          type="daterange"
+          size="small"
+          value-format="YYYY-MM-DD"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          :clearable="false"
+          :disabled-date="disabledDate"
+          class="range-picker"
+        />
       </div>
       <span class="filter-divider" />
       <div class="filter-group">
@@ -417,11 +512,10 @@ onMounted(() => {
             />
           </el-col>
           <el-col :xs="24" :lg="12">
-            <BreakdownPanel
-              title="模型分布"
-              subtitle="按请求量排序"
-              :rows="modelRows"
-              empty-text="所选范围内无模型调用"
+            <ModelUsagePanel
+              :models="data.breakdown.models"
+              :buckets="data.trend.buckets"
+              :total-tokens="data.kpis.tokens.value"
             />
           </el-col>
         </el-row>
@@ -535,8 +629,13 @@ onMounted(() => {
 
 .filter-group {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 9px;
+}
+
+.range-picker {
+  width: 236px;
 }
 
 .filter-label {
