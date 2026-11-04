@@ -475,16 +475,6 @@ onMounted(load)
       </p>
     </section>
 
-    <div class="quick-links">
-      <router-link class="quick-link" to="/portal/tokens">
-        <span class="quick-title">我的 Key</span>
-        <span class="quick-desc">自助创建、轮换或撤销 Key，共享个人额度</span>
-      </router-link>
-      <router-link class="quick-link" to="/portal/requests">
-        <span class="quick-title">额度提额</span>
-        <span class="quick-desc">额度不足时提交申请，批准后立即生效</span>
-      </router-link>
-    </div>
   </div>
 </template>
 
@@ -874,44 +864,6 @@ onMounted(load)
   font-size: 11px;
 }
 
-.quick-links {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 18px;
-}
-
-.quick-link {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 18px 20px;
-  border: 1px solid var(--gw-border);
-  border-radius: var(--gw-radius-lg);
-  background: #fff;
-  box-shadow: var(--gw-shadow-card);
-  text-decoration: none;
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.quick-link:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 12px 30px -20px rgba(23, 32, 51, 0.35);
-}
-
-.quick-title {
-  color: var(--gw-text);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.quick-desc {
-  color: var(--gw-text-muted);
-  font-size: 12px;
-}
-
 @media (max-width: 1000px) {
   .metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -956,10 +908,6 @@ onMounted(load)
 
   .card-heading {
     flex-direction: column;
-  }
-
-  .quick-links {
-    grid-template-columns: 1fr;
   }
 }
 </style>
