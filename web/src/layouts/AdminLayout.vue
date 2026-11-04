@@ -11,11 +11,13 @@ import {
   Setting,
   Share,
   SwitchButton,
+  Tickets,
   User,
   UserFilled,
 } from '@element-plus/icons-vue'
 
 import type { AdminRole } from '../api/types'
+import { ADMIN_HOME, ADMIN_LOGIN, ADMIN_ROOT } from '../router/paths'
 import { useAuthStore } from '../stores/auth'
 
 interface NavItem {
@@ -30,33 +32,36 @@ interface NavGroup {
   items: NavItem[]
 }
 
+const adminPath = (name: string): string => `${ADMIN_ROOT}/${name}`
+
 const navGroups: NavGroup[] = [
   {
     label: '监控',
-    items: [{ path: '/dashboard', label: '概览', icon: Odometer }],
+    items: [{ path: ADMIN_HOME, label: '概览', icon: Odometer }],
   },
   {
     label: '资源',
     items: [
-      { path: '/employees', label: '员工管理', icon: User },
-      { path: '/tokens', label: 'Token 管理', icon: Key },
-      { path: '/providers', label: '上游服务', icon: Connection },
-      { path: '/model-routes', label: '模型路由', icon: Share },
+      { path: adminPath('employees'), label: '团队管理', icon: User },
+      { path: adminPath('tokens'), label: 'Token 管理', icon: Key },
+      { path: adminPath('token-requests'), label: 'Token 申请', icon: Tickets },
+      { path: adminPath('providers'), label: '上游服务', icon: Connection },
+      { path: adminPath('model-routes'), label: '模型路由', icon: Share },
     ],
   },
   {
     label: '安全与合规',
     items: [
-      { path: '/dlp-rules', label: 'DLP 规则', icon: Lock },
-      { path: '/audit', label: '审计日志', icon: Document },
+      { path: adminPath('dlp-rules'), label: 'DLP 规则', icon: Lock },
+      { path: adminPath('audit'), label: '审计日志', icon: Document },
     ],
   },
   {
     label: '系统',
     items: [
-      { path: '/settings', label: '系统设置', icon: Setting, superOnly: true },
+      { path: adminPath('settings'), label: '系统设置', icon: Setting, superOnly: true },
       {
-        path: '/admin-users',
+        path: adminPath('admin-users'),
         label: '管理员账号',
         icon: UserFilled,
         superOnly: true,
@@ -125,7 +130,7 @@ async function logout(): Promise<void> {
   } catch {
     auth.clear()
   } finally {
-    await router.replace({ path: '/login' })
+    await router.replace({ path: ADMIN_LOGIN })
   }
 }
 </script>

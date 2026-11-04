@@ -2,21 +2,78 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 
 import AdminLayout from '../layouts/AdminLayout.vue'
+import PortalLayout from '../layouts/PortalLayout.vue'
 import { pinia } from '../stores'
 import { useAuthStore } from '../stores/auth'
+import { usePortalAuthStore } from '../stores/portalAuth'
 import LoginView from '../views/LoginView.vue'
+import PortalLoginView from '../views/PortalLoginView.vue'
+import {
+  ADMIN_HOME,
+  ADMIN_LOGIN,
+  ADMIN_ROOT,
+  PORTAL_HOME,
+  PORTAL_LOGIN,
+  PORTAL_ROOT,
+  isPortalPath,
+} from './paths'
 
 const routes: RouteRecordRaw[] = [
   {
-    path: '/login',
+    path: ADMIN_LOGIN,
     name: 'login',
     component: LoginView,
     meta: { public: true },
   },
   {
-    path: '/',
+    path: PORTAL_LOGIN,
+    name: 'portal-login',
+    component: PortalLoginView,
+    meta: { portalPublic: true },
+  },
+  {
+    path: PORTAL_ROOT,
+    component: PortalLayout,
+    redirect: PORTAL_HOME,
+    meta: { portal: true },
+    children: [
+      {
+        path: 'overview',
+        name: 'portal-overview',
+        component: () => import('../views/PortalOverviewView.vue'),
+      },
+      {
+        path: 'usage',
+        name: 'portal-usage',
+        component: () => import('../views/PortalUsageView.vue'),
+      },
+      {
+        path: 'tokens',
+        name: 'portal-tokens',
+        component: () => import('../views/PortalTokensView.vue'),
+      },
+      {
+        path: 'requests',
+        name: 'portal-requests',
+        component: () => import('../views/PortalRequestsView.vue'),
+      },
+      {
+        path: 'profile',
+        name: 'portal-profile',
+        component: () => import('../views/PortalProfileView.vue'),
+      },
+      {
+        path: 'password',
+        name: 'portal-password',
+        component: () => import('../views/PortalPasswordView.vue'),
+      },
+      { path: ':pathMatch(.*)*', redirect: PORTAL_HOME },
+    ],
+  },
+  {
+    path: ADMIN_ROOT,
     component: AdminLayout,
-    redirect: '/dashboard',
+    redirect: ADMIN_HOME,
     children: [
       {
         path: 'dashboard',
@@ -32,6 +89,11 @@ const routes: RouteRecordRaw[] = [
         path: 'tokens',
         name: 'tokens',
         component: () => import('../views/TokensView.vue'),
+      },
+      {
+        path: 'token-requests',
+        name: 'token-requests',
+        component: () => import('../views/TokenRequestsView.vue'),
       },
       {
         path: 'providers',
@@ -67,7 +129,8 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
-  { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
+  { path: '/', redirect: PORTAL_LOGIN },
+  { path: '/:pathMatch(.*)*', redirect: PORTAL_LOGIN },
 ]
 
 const router = createRouter({
@@ -76,6 +139,50 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
+  if (isPortalPath(to.path)) {
+    const portal = usePortalAuthStore(pinia)
+
+    if (to.name === 'portal-login') {
+      if (!portal.initialized) {
+        try {
+          await portal.me()
+        } catch {
+          portal.clear()
+        }
+      }
+      if (portal.isAuthenticated) {
+        return portal.mustChangePassword
+          ? { path: '/portal/password' }
+          : { path: PORTAL_HOME }
+      }
+      return true
+    }
+
+    if (!portal.initialized) {
+      try {
+        await portal.me()
+      } catch {
+        portal.clear()
+      }
+    }
+
+    if (!portal.isAuthenticated) {
+      return {
+        path: PORTAL_LOGIN,
+        query:
+          to.fullPath === PORTAL_ROOT ? undefined : { redirect: to.fullPath },
+      }
+    }
+
+    // The initial administrator-issued password must be replaced before any
+    // usage or token data is shown.
+    if (portal.mustChangePassword && to.name !== 'portal-password') {
+      return { path: '/portal/password' }
+    }
+
+    return true
+  }
+
   const auth = useAuthStore(pinia)
 
   if (!auth.initialized) {
@@ -87,18 +194,18 @@ router.beforeEach(async (to) => {
   }
 
   if (to.meta.public) {
-    return auth.isAuthenticated ? { path: '/dashboard' } : true
+    return auth.isAuthenticated ? { path: ADMIN_HOME } : true
   }
 
   if (!auth.isAuthenticated) {
     return {
-      path: '/login',
-      query: to.fullPath === '/' ? undefined : { redirect: to.fullPath },
+      path: ADMIN_LOGIN,
+      query: to.fullPath === ADMIN_ROOT ? undefined : { redirect: to.fullPath },
     }
   }
 
   if (to.meta.superOnly && !auth.isSuperAdmin) {
-    return { path: '/dashboard' }
+    return { path: ADMIN_HOME }
   }
 
   return true

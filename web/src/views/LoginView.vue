@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { CircleCheck, Lock, User } from '@element-plus/icons-vue'
 
 import { ApiError } from '../api/client'
-import { safeRedirect } from '../router/redirect'
+import { safeAdminRedirect } from '../router/redirect'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
@@ -26,7 +26,7 @@ async function submit(): Promise<void> {
   loading.value = true
   try {
     await auth.login(username, form.password)
-    await router.replace(safeRedirect(route.query.redirect))
+    await router.replace(safeAdminRedirect(route.query.redirect))
   } catch (error) {
     if (error instanceof ApiError) {
       if (error.status === 401) {
