@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/store"
-	"github.com/company/api-key/internal/testutil"
+	"github.com/company/sluice/internal/store"
+	"github.com/company/sluice/internal/testutil"
 )
 
 var ctx = context.Background()

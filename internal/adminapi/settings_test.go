@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/company/api-key/internal/alert"
+	"github.com/company/sluice/internal/alert"
 )
 
 type recordingMailer struct {

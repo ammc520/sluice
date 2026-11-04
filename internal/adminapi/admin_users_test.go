@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/adminauth"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/adminauth"
+	"github.com/company/sluice/internal/store"
 )
 
 func loginAs(t *testing.T, env *adminEnv, username, password string) adminSession {

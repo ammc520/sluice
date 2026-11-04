@@ -20,12 +20,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/company/api-key/internal/app"
-	"github.com/company/api-key/internal/config"
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/store"
-	"github.com/company/api-key/internal/store/postgres"
-	"github.com/company/api-key/internal/testutil"
+	"github.com/company/sluice/internal/app"
+	"github.com/company/sluice/internal/config"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/store"
+	"github.com/company/sluice/internal/store/postgres"
+	"github.com/company/sluice/internal/testutil"
 )
 
 const (

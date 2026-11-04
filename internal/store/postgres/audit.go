@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 const auditColumns = `id, event_time, request_id, token_id, employee_id, department_id,

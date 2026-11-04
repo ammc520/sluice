@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/netguard"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/netguard"
+	"github.com/company/sluice/internal/store"
 )
 
 // DefaultCaptureLimit is how many response bytes are kept for audit.

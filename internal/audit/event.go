@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/dlp"
+	"github.com/company/sluice/internal/dlp"
 )
 
 // Event is one gateway request outcome. The async Writer encrypts Prompt and

@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/metrics"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/metrics"
+	"github.com/company/sluice/internal/store"
 )
 
 // MaxAuditTextBytes bounds each stored prompt or response. Anything larger is

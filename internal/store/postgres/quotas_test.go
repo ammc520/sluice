@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func seedQuotaToken(t *testing.T, s *Store, employeeID uuid.UUID, total *int64) *store.Token {

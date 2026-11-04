@@ -1,4 +1,4 @@
-# 企业 API 安全网关与 DLP 监测系统 — 设计文档
+# Sluice — 企业 API 安全网关与 DLP 监测系统设计文档
 
 - 日期：2026-11-02
 - 状态：已确认
@@ -676,14 +676,14 @@ API 前缀 `/admin/api`。所有响应使用 `{ "data": ..., "error": null }` �
 
 ```text
 caddy        # 443/80, TLS, 静态后台, 反代
-gateway      # Go 二进制, :8080 内网
+sluice       # Go 二进制, :8080 内网
 postgres     # PostgreSQL 16, 数据卷
 redis        # Redis 7, 仅内网, 可无持久化
 ```
 
 - Caddy 配置：
-  - `handle /v1/*` → `reverse_proxy gateway:8080`，关闭响应缓冲。
-  - `handle /admin/api/*`、`/portal/api/*` → `reverse_proxy gateway:8080`。
+  - `handle /v1/*` → `reverse_proxy sluice:8080`，关闭响应缓冲。
+  - `handle /admin/api/*`、`/portal/api/*` → `reverse_proxy sluice:8080`。
   - `handle` → 静态 `web/dist`，SPA fallback 到 `index.html`；`/admin/*` 与 `/portal/*` 由前端路由接管，站点根 `/` 跳转到 `/portal`。
 - 数据卷：`pgdata`、`caddy_data`、`caddy_config`、`audit-spool`、`backups`。
 - 资源建议：2 vCPU / 4 GB 内存起步；Postgres 单独数据盘更稳妥。
@@ -703,7 +703,7 @@ TRUSTED_PROXIES=172.16.0.0/12
 CAPTURE_LIMIT_BYTES=262144
 REQUEST_BODY_LIMIT_BYTES=2097152
 AUDIT_RETENTION_DAYS=180
-AUDIT_SPOOL_DIR=/var/lib/gateway/spool
+AUDIT_SPOOL_DIR=/var/lib/sluice/spool
 BOOTSTRAP_ADMIN_USERNAME=admin
 BOOTSTRAP_ADMIN_PASSWORD=<首次启动用，创建后移除>
 SMTP_*（也可在后台设置）

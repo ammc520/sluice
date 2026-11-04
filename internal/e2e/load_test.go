@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/company/api-key/internal/dlp"
+	"github.com/company/sluice/internal/dlp"
 )
 
 // TestConcurrentStreamingRequests exercises 100 streaming requests with 20

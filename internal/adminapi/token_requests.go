@@ -9,9 +9,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/company/api-key/internal/adminauth"
-	"github.com/company/api-key/internal/portalcfg"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/adminauth"
+	"github.com/company/sluice/internal/portalcfg"
+	"github.com/company/sluice/internal/store"
 )
 
 // TokenRequestHandler serves the administrator side of the portal approval

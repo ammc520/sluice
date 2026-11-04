@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/store"
 )
 
 var alertTime = time.Date(2026, 11, 2, 10, 0, 0, 0, time.FixedZone("CST", 8*3600))

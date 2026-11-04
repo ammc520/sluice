@@ -146,9 +146,9 @@ async function logout(): Promise<void> {
 
     <aside class="sidebar" :class="{ 'is-open': sidebarOpen }">
       <div class="brand">
-        <div class="brand-mark">API</div>
+        <div class="brand-mark">S</div>
         <div class="brand-text">
-          <strong>安全网关</strong>
+          <strong>Sluice</strong>
           <span>API · DLP 控制台</span>
         </div>
       </div>
@@ -194,7 +194,7 @@ async function logout(): Promise<void> {
             <el-icon><MenuIcon /></el-icon>
           </button>
           <div class="title-block">
-            <span class="title-eyebrow">安全网关 · 管理控制台</span>
+            <span class="title-eyebrow">Sluice · 管理控制台</span>
             <h1 class="page-title">{{ currentTitle }}</h1>
           </div>
         </div>

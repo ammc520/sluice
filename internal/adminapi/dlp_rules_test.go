@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func TestDLPRuleCRUD(t *testing.T) {

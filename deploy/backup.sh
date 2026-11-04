@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Daily encrypted PostgreSQL backup for the Compose deployment.
 #
-#   BACKUP_PASSPHRASE_FILE=/etc/api-gateway/backup.passphrase \
-#   RCLONE_REMOTE=cos:company-backups/api-gateway \
+#   BACKUP_PASSPHRASE_FILE=/etc/sluice/backup.passphrase \
+#   RCLONE_REMOTE=cos:company-backups/sluice \
 #   bash deploy/backup.sh
 #
 # The passphrase must differ from MASTER_KEY. The dump is encrypted before it
@@ -86,8 +86,8 @@ if command -v flock >/dev/null 2>&1; then
 fi
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
-out_file="$BACKUP_DIR/gateway-$timestamp.dump.enc"
-tmp_file="$BACKUP_DIR/.gateway-$timestamp.dump.enc.tmp"
+out_file="$BACKUP_DIR/sluice-$timestamp.dump.enc"
+tmp_file="$BACKUP_DIR/.sluice-$timestamp.dump.enc.tmp"
 
 log "dumping database $POSTGRES_DB"
 docker compose \
@@ -120,7 +120,7 @@ fi
 
 log "pruning local backups older than $RETENTION_DAYS days"
 find "$BACKUP_DIR" -maxdepth 1 -type f \
-	\( -name 'gateway-*.dump.enc' -o -name 'gateway-*.dump.enc.sha256' \) \
+	\( -name 'sluice-*.dump.enc' -o -name 'sluice-*.dump.enc.sha256' \) \
 	-mtime "+$RETENTION_DAYS" -delete
 
 log "backup complete"

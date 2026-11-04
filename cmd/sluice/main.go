@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/company/api-key/internal/app"
-	"github.com/company/api-key/internal/config"
+	"github.com/company/sluice/internal/app"
+	"github.com/company/sluice/internal/config"
 )
 
 func main() {

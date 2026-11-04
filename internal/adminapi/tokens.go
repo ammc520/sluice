@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/store"
 )
 
 // TokenHandler serves employee token administration endpoints.

@@ -57,8 +57,8 @@ async function submit(): Promise<void> {
   <div class="portal-login-page">
     <div class="login-card">
       <div class="brand">
-        <span class="brand-mark">API</span>
-        <span class="brand-name">安全网关 · 员工门户</span>
+        <span class="brand-mark">S</span>
+        <span class="brand-name">Sluice · 员工门户</span>
       </div>
 
       <div class="heading">

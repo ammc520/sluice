@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 // Directory returns departments with their member counts plus org-wide

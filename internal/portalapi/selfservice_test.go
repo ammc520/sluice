@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/portalcfg"
+	"github.com/company/sluice/internal/portalcfg"
 )
 
 type createdKey struct {
