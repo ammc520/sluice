@@ -21,6 +21,12 @@ type fakeTokenStore struct {
 }
 
 func (f *fakeTokenStore) Create(context.Context, *store.Token) error { return nil }
+func (f *fakeTokenStore) CreateWithLimit(context.Context, *store.Token, int, time.Time) error {
+	return nil
+}
+func (f *fakeTokenStore) Rotate(context.Context, uuid.UUID, uuid.UUID, *store.Token, time.Time) error {
+	return nil
+}
 func (f *fakeTokenStore) Get(context.Context, uuid.UUID) (*store.Token, error) {
 	return f.token, nil
 }
@@ -39,7 +45,10 @@ func (f *fakeTokenStore) ReserveQuota(context.Context, uuid.UUID, int64, time.Ti
 	return store.Reservation{}, nil
 }
 func (f *fakeTokenStore) SettleQuota(context.Context, store.Reservation, int64) error { return nil }
-func (f *fakeTokenStore) Touch(context.Context, uuid.UUID, time.Time) error           { return nil }
+func (f *fakeTokenStore) CountActiveByEmployee(context.Context, uuid.UUID, time.Time) (int, error) {
+	return 1, nil
+}
+func (f *fakeTokenStore) Touch(context.Context, uuid.UUID, time.Time) error { return nil }
 
 type fakeEmployeeStore struct {
 	employee *store.Employee

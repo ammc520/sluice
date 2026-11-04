@@ -48,6 +48,7 @@ func (s *DashboardStore) Summary(ctx context.Context, current, previous store.Da
 		prevTrend  []store.DashboardTrendPoint
 		providers  []store.DashboardProviderStat
 		models     []store.DashboardModelStat
+		modelTrend []modelTrendSeries
 		users      []store.DashboardUserStat
 		dlpActions []store.DashboardDLPActionStat
 		dlpRules   []store.DashboardDLPRuleStat
@@ -83,6 +84,10 @@ func (s *DashboardStore) Summary(ctx context.Context, current, previous store.Da
 		return err
 	})
 	g.Go(func() (err error) {
+		modelTrend, err = s.dashboardModelTrends(gctx, current, interval)
+		return err
+	})
+	g.Go(func() (err error) {
 		users, err = s.dashboardUsers(gctx, current)
 		return err
 	})
@@ -108,6 +113,13 @@ func (s *DashboardStore) Summary(ctx context.Context, current, previous store.Da
 	}
 
 	pressure, userQuotas := summarizeQuotas(quotas)
+	trendByModel := make(map[string][]store.DashboardModelTrendPoint, len(modelTrend))
+	for _, series := range modelTrend {
+		trendByModel[series.model] = series.points
+	}
+	for i := range models {
+		models[i].Trend = trendByModel[models[i].Model]
+	}
 	return store.DashboardData{
 		KPI:           kpi,
 		PreviousKPI:   prevKPI,
@@ -230,7 +242,8 @@ func (s *DashboardStore) dashboardProviders(ctx context.Context, f store.Dashboa
 func (s *DashboardStore) dashboardModels(ctx context.Context, f store.DashboardFilter) ([]store.DashboardModelStat, error) {
 	w := newDashboardWhere("a", f)
 	rows, err := s.pool.Query(ctx, `
-		SELECT coalesce(nullif(a.model,''),'未知'), count(*), coalesce(sum(a.total_tokens),0)
+		SELECT coalesce(nullif(a.model,''),'未知'), count(*), coalesce(sum(a.total_tokens),0),
+			count(*) FILTER (WHERE a.status_code >= 400 AND a.status_code <> 499)
 		FROM audit_logs a
 		WHERE `+w.clause+`
 		GROUP BY 1
@@ -244,10 +257,62 @@ func (s *DashboardStore) dashboardModels(ctx context.Context, f store.DashboardF
 	out := []store.DashboardModelStat{}
 	for rows.Next() {
 		var m store.DashboardModelStat
-		if err := rows.Scan(&m.Model, &m.Requests, &m.Tokens); err != nil {
+		if err := rows.Scan(&m.Model, &m.Requests, &m.Tokens, &m.Errors); err != nil {
 			return nil, err
 		}
 		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+type modelTrendSeries struct {
+	model  string
+	points []store.DashboardModelTrendPoint
+}
+
+// dashboardModelTrends returns per-bucket usage grouped by requested model so
+// the console can render a sparkline for each model in the breakdown.
+func (s *DashboardStore) dashboardModelTrends(ctx context.Context, f store.DashboardFilter, interval string) ([]modelTrendSeries, error) {
+	unit := "hour"
+	pgFormat := "YYYY-MM-DD HH24:00"
+	layout := "2006-01-02 15:04"
+	if interval == "day" {
+		unit = "day"
+		pgFormat = "YYYY-MM-DD"
+		layout = "2006-01-02"
+	}
+	w := newDashboardWhere("a", f)
+	q := fmt.Sprintf(`
+		SELECT coalesce(nullif(a.model,''),'未知') AS model,
+			to_char(date_trunc('%s', a.event_time AT TIME ZONE 'Asia/Shanghai'), '%s') AS bucket,
+			count(*),
+			coalesce(sum(a.total_tokens),0),
+			count(*) FILTER (WHERE a.status_code >= 400 AND a.status_code <> 499)
+		FROM audit_logs a
+		WHERE %s
+		GROUP BY 1, 2
+		ORDER BY 1, 2`, unit, pgFormat, w.clause)
+	rows, err := s.pool.Query(ctx, q, w.args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []modelTrendSeries{}
+	for rows.Next() {
+		var model, raw string
+		var point store.DashboardModelTrendPoint
+		if err := rows.Scan(&model, &raw, &point.Requests, &point.Tokens, &point.Errors); err != nil {
+			return nil, err
+		}
+		point.Bucket, err = time.ParseInLocation(layout, raw, shanghai)
+		if err != nil {
+			return nil, fmt.Errorf("parse model bucket %q: %w", raw, err)
+		}
+		if len(out) == 0 || out[len(out)-1].model != model {
+			out = append(out, modelTrendSeries{model: model})
+		}
+		out[len(out)-1].points = append(out[len(out)-1].points, point)
 	}
 	return out, rows.Err()
 }
@@ -390,21 +455,19 @@ func incidentRuleNames(raw []byte) []string {
 }
 
 func (s *DashboardStore) dashboardQuotas(ctx context.Context, now time.Time, departmentID *int64) ([]store.DashboardQuota, error) {
-	args := []any{now}
+	args := []any{}
 	q := `
-		SELECT t.id, t.employee_id, coalesce(e.name,''), coalesce(d.name,''),
-			t.token_prefix, t.token_last4, t.quota_type, t.quota_period,
-			t.quota_used, t.quota_total, t.period_start, t.expires_at
-		FROM tokens t
-		JOIN employees e ON e.id = t.employee_id
+		SELECT q.employee_id, coalesce(e.name,''), coalesce(d.name,''),
+			q.quota_type, q.quota_period, q.quota_used, q.quota_total, q.period_start
+		FROM employee_quotas q
+		JOIN employees e ON e.id = q.employee_id
 		LEFT JOIN departments d ON d.id = e.department_id
-		WHERE t.status = 1 AND t.quota_total IS NOT NULL AND t.quota_total > 0
-			AND (t.expires_at IS NULL OR t.expires_at > $1)`
+		WHERE e.status = 1 AND q.quota_total > 0`
 	if departmentID != nil {
 		args = append(args, *departmentID)
 		q += fmt.Sprintf(" AND e.department_id = $%d", len(args))
 	}
-	q += " ORDER BY t.employee_id, t.quota_used DESC"
+	q += " ORDER BY q.quota_used::numeric / NULLIF(q.quota_total,0) DESC, q.quota_used DESC"
 
 	rows, err := s.pool.Query(ctx, q, args...)
 	if err != nil {
@@ -415,11 +478,12 @@ func (s *DashboardStore) dashboardQuotas(ctx context.Context, now time.Time, dep
 	out := []store.DashboardQuota{}
 	for rows.Next() {
 		var q store.DashboardQuota
-		if err := rows.Scan(&q.TokenID, &q.EmployeeID, &q.EmployeeName, &q.Department,
-			&q.TokenPrefix, &q.TokenLast4, &q.QuotaType, &q.QuotaPeriod,
-			&q.Used, &q.Total, &q.PeriodStart, &q.ExpiresAt); err != nil {
+		var start time.Time
+		if err := rows.Scan(&q.EmployeeID, &q.EmployeeName, &q.Department,
+			&q.QuotaType, &q.QuotaPeriod, &q.Used, &q.Total, &start); err != nil {
 			return nil, err
 		}
+		q.PeriodStart = &start
 		applyQuotaReset(&q, now)
 		out = append(out, q)
 	}

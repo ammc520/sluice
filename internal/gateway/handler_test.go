@@ -74,7 +74,7 @@ type fakeQuota struct {
 	settleCount  int
 }
 
-func (f *fakeQuota) Reserve(_ context.Context, token *store.Token, endpoint quota.Endpoint, maxTokens int64) (store.Reservation, error) {
+func (f *fakeQuota) Reserve(_ context.Context, employeeID uuid.UUID, token *store.Token, endpoint quota.Endpoint, maxTokens int64) (store.Reservation, error) {
 	f.reserveCount++
 	f.reserveCalls = append(f.reserveCalls, quotaReserveCall{token: token, endpoint: endpoint, maxTokens: maxTokens})
 	if f.reserveErr != nil {
@@ -83,6 +83,12 @@ func (f *fakeQuota) Reserve(_ context.Context, token *store.Token, endpoint quot
 	reservation := f.reservation
 	if reservation.TokenID == uuid.Nil {
 		reservation.TokenID = token.ID
+	}
+	if reservation.EmployeeID == uuid.Nil {
+		reservation.EmployeeID = employeeID
+	}
+	if reservation.QuotaType == "" {
+		reservation.QuotaType = token.QuotaType
 	}
 	return reservation, nil
 }
@@ -288,6 +294,7 @@ type testErrorEnvelope struct {
 		Code      string   `json:"code"`
 		Message   string   `json:"message"`
 		RequestID string   `json:"request_id"`
+		Scope     string   `json:"scope"`
 		Rules     []string `json:"rules"`
 	} `json:"error"`
 }
@@ -425,7 +432,7 @@ func TestQuotaExceededReturns402(t *testing.T) {
 	if rr.Code != http.StatusPaymentRequired {
 		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
 	}
-	if env := decodeError(t, rr); env.Error.Code != "quota_exceeded" {
+	if env := decodeError(t, rr); env.Error.Code != "quota_exceeded" || env.Error.Scope != "employee" {
 		t.Fatalf("error %+v", env)
 	}
 	if f.upstream.calls != 0 {
@@ -433,6 +440,22 @@ func TestQuotaExceededReturns402(t *testing.T) {
 	}
 	if event := f.audit.last(); event.StatusCode != http.StatusPaymentRequired || event.ErrorCode != "quota_exceeded" {
 		t.Fatalf("audit event %+v", event)
+	}
+}
+
+func TestQuotaExceededReportsKeyCapScope(t *testing.T) {
+	_, f := newHandlerFixture(t)
+	f.quota.reserveErr = &store.QuotaExceededError{Scope: "token"}
+	rr := f.run(t, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o"}`, nil)
+
+	if rr.Code != http.StatusPaymentRequired {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+	if env := decodeError(t, rr); env.Error.Code != "quota_exceeded" || env.Error.Scope != "token" {
+		t.Fatalf("error %+v", env)
+	}
+	if f.upstream.calls != 0 {
+		t.Fatal("upstream called after key cap rejection")
 	}
 }
 

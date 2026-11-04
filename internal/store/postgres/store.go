@@ -35,6 +35,11 @@ type Store struct {
 	Settings    *SettingsStore
 	Departments *DepartmentStore
 	Dashboard   *DashboardStore
+
+	Accounts       *EmployeeAccountStore
+	TokenRequests  *TokenRequestStore
+	EmployeeQuotas *EmployeeQuotaStore
+	EmployeeAudits *EmployeeAuditStore
 }
 
 func newStore(pool *pgxpool.Pool) *Store {
@@ -50,6 +55,11 @@ func newStore(pool *pgxpool.Pool) *Store {
 		Settings:    &SettingsStore{pool: pool},
 		Departments: &DepartmentStore{pool: pool},
 		Dashboard:   &DashboardStore{pool: pool},
+
+		Accounts:       &EmployeeAccountStore{pool: pool},
+		TokenRequests:  &TokenRequestStore{pool: pool},
+		EmployeeQuotas: &EmployeeQuotaStore{pool: pool},
+		EmployeeAudits: &EmployeeAuditStore{pool: pool},
 	}
 }
 

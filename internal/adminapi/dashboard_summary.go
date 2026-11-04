@@ -149,9 +149,18 @@ type providerStatDTO struct {
 }
 
 type modelStatDTO struct {
-	Model    string `json:"model"`
+	Model    string               `json:"model"`
+	Requests int64                `json:"requests"`
+	Tokens   int64                `json:"tokens"`
+	Errors   int64                `json:"errors"`
+	Trend    []modelTrendPointDTO `json:"trend"`
+}
+
+type modelTrendPointDTO struct {
+	Bucket   string `json:"bucket"`
 	Requests int64  `json:"requests"`
 	Tokens   int64  `json:"tokens"`
+	Errors   int64  `json:"errors"`
 }
 
 type summaryUserDTO struct {
@@ -313,7 +322,7 @@ func parseSummaryParams(c *gin.Context, now time.Time) (summaryParams, bool) {
 		}
 		from, to, previousFrom, previousTo, interval, ok := rangeWindow(rawRange, now)
 		if !ok {
-			BadRequest(c, "range must be today, 24h, 7d, or 30d")
+			BadRequest(c, "range must be today, yesterday, 24h, 7d, 30d, or 90d")
 			return p, false
 		}
 		p.from, p.to = from, to
@@ -375,6 +384,12 @@ func rangeWindow(raw string, now time.Time) (from, to, previousFrom, previousTo 
 		previousFrom = from.AddDate(0, 0, -1)
 		previousTo = now.AddDate(0, 0, -1)
 		interval = "hour"
+	case "yesterday":
+		to = startOfDay
+		from = startOfDay.AddDate(0, 0, -1)
+		previousFrom = from.AddDate(0, 0, -1)
+		previousTo = to.AddDate(0, 0, -1)
+		interval = "hour"
 	case "24h":
 		to = now
 		from = now.Truncate(time.Hour).Add(-23 * time.Hour)
@@ -392,6 +407,12 @@ func rangeWindow(raw string, now time.Time) (from, to, previousFrom, previousTo 
 		to = now
 		previousFrom = from.AddDate(0, 0, -30)
 		previousTo = now.AddDate(0, 0, -30)
+		interval = "day"
+	case "90d":
+		from = startOfDay.AddDate(0, 0, -89)
+		to = now
+		previousFrom = from.AddDate(0, 0, -90)
+		previousTo = now.AddDate(0, 0, -90)
 		interval = "day"
 	default:
 		return time.Time{}, time.Time{}, time.Time{}, time.Time{}, "", false
@@ -444,10 +465,21 @@ func buildSummaryDTO(data store.DashboardData, p summaryParams, now time.Time) s
 	}
 	models := make([]modelStatDTO, 0, len(data.Models))
 	for _, item := range data.Models {
+		points := make([]modelTrendPointDTO, 0, len(item.Trend))
+		for _, point := range item.Trend {
+			points = append(points, modelTrendPointDTO{
+				Bucket:   point.Bucket.Format(time.RFC3339),
+				Requests: point.Requests,
+				Tokens:   point.Tokens,
+				Errors:   point.Errors,
+			})
+		}
 		models = append(models, modelStatDTO{
 			Model:    item.Model,
 			Requests: item.Requests,
 			Tokens:   item.Tokens,
+			Errors:   item.Errors,
+			Trend:    points,
 		})
 	}
 

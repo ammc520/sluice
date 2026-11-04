@@ -28,6 +28,7 @@ type Config struct {
 	BootstrapAdminPassword      string
 	DefaultReserveTokens        int64
 	AdminSessionTTLHours        int
+	PortalSessionTTLHours       int
 }
 
 // Load reads configuration from the environment and validates required values.
@@ -69,6 +70,7 @@ func Load() (*Config, error) {
 	cfg.AuditRetentionDays = int(envInt64("AUDIT_RETENTION_DAYS", 180))
 	cfg.DefaultReserveTokens = envInt64("DEFAULT_RESERVE_TOKENS", 4096)
 	cfg.AdminSessionTTLHours = int(envInt64("ADMIN_SESSION_TTL_HOURS", 12))
+	cfg.PortalSessionTTLHours = int(envInt64("PORTAL_SESSION_TTL_HOURS", 8))
 
 	return cfg, nil
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/company/api-key/internal/alert"
 	"github.com/company/api-key/internal/auth"
 	"github.com/company/api-key/internal/crypto"
+	"github.com/company/api-key/internal/portalcfg"
 	"github.com/company/api-key/internal/store"
 )
 
@@ -35,12 +36,13 @@ const (
 // SettingsHandler serves SMTP and audit settings endpoints. Only super
 // administrators may use these routes.
 type SettingsHandler struct {
-	settings       store.SettingsStore
-	admins         store.AdminStore
-	cipher         *crypto.Cipher
-	mailerFactory  func(alert.SMTPConfig) alert.Mailer
-	now            func() time.Time
-	trustedProxies []string
+	settings         store.SettingsStore
+	admins           store.AdminStore
+	cipher           *crypto.Cipher
+	mailerFactory    func(alert.SMTPConfig) alert.Mailer
+	now              func() time.Time
+	trustedProxies   []string
+	portalInvalidate func()
 }
 
 // NewSettingsHandler creates the settings handler.
@@ -59,6 +61,12 @@ func NewSettingsHandler(settings store.SettingsStore, admins store.AdminStore, c
 		now:            clock,
 		trustedProxies: append([]string(nil), trustedProxies...),
 	}
+}
+
+// SetPortalInvalidate lets the application drop the cached portal policy as
+// soon as an administrator saves it.
+func (h *SettingsHandler) SetPortalInvalidate(fn func()) {
+	h.portalInvalidate = fn
 }
 
 // requireSuperAdmin is a defense-in-depth check. Routes also use
@@ -412,4 +420,63 @@ func (h *SettingsHandler) PutAuditSettings(c *gin.Context) {
 		return
 	}
 	OK(c, http.StatusOK, settings)
+}
+
+// GetPortal handles GET /admin/api/settings/portal.
+func (h *SettingsHandler) GetPortal(c *gin.Context) {
+	if !requireSuperAdmin(c) {
+		return
+	}
+	settings, err := portalcfg.Load(c.Request.Context(), h.settings)
+	if err != nil {
+		InternalError(c)
+		return
+	}
+	OK(c, http.StatusOK, settings)
+}
+
+// PutPortal handles PUT /admin/api/settings/portal.
+func (h *SettingsHandler) PutPortal(c *gin.Context) {
+	if !requireSuperAdmin(c) {
+		return
+	}
+	var payload portalcfg.Settings
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		BadRequest(c, "invalid JSON body")
+		return
+	}
+	payload.Normalize()
+	if err := payload.Validate(); err != nil {
+		BadRequest(c, err.Error())
+		return
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		InternalError(c)
+		return
+	}
+	if err := h.settings.Set(c.Request.Context(), portalcfg.SettingsKey, raw); err != nil {
+		InternalError(c)
+		return
+	}
+	if err := recordAdminAudit(c, h.admins, h.trustedProxies, "update_portal_settings", "settings", portalcfg.SettingsKey, map[string]any{
+		"enabled":              payload.Enabled,
+		"default_quota":        payload.DefaultQuota,
+		"max_request_total":    payload.MaxRequestTotal,
+		"request_ttl_days":     payload.RequestTTLDays,
+		"claim_ttl_hours":      payload.ClaimTTLHours,
+		"usage_max_days":       payload.UsageMaxDays,
+		"self_service_enabled": payload.SelfServiceEnabled,
+		"max_active_tokens":    payload.MaxActiveTokens,
+		"allow_self_rotate":    payload.AllowSelfRotate,
+		"allow_self_revoke":    payload.AllowSelfRevoke,
+		"auto_approve_quota":   payload.AutoApproveQuota,
+	}); err != nil {
+		InternalError(c)
+		return
+	}
+	if h.portalInvalidate != nil {
+		h.portalInvalidate()
+	}
+	OK(c, http.StatusOK, payload)
 }

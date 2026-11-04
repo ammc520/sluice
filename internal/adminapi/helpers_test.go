@@ -16,6 +16,7 @@ import (
 	"github.com/company/api-key/internal/adminauth"
 	"github.com/company/api-key/internal/crypto"
 	"github.com/company/api-key/internal/netguard"
+	"github.com/company/api-key/internal/portalcfg"
 	"github.com/company/api-key/internal/ratelimit"
 	"github.com/company/api-key/internal/store"
 	"github.com/company/api-key/internal/store/postgres"
@@ -86,8 +87,8 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	env.employeeID = emp.ID.String()
 
 	env.auth = adminauth.New(pg.Admins, ratelimit.NewMemory(), time.Now, time.Hour)
-	authHandler := NewAuthHandler(env.auth, false)
-	employees := NewEmployeeHandler(pg.Employees)
+	authHandler := NewAuthHandler(env.auth, false, nil)
+	employees := NewEmployeeHandler(pg.Employees, pg.EmployeeQuotas, nil)
 	tokens := NewTokenHandler(pg.Tokens, pg.Employees, time.Now)
 	providerClient := netguard.NewClient(10*time.Second, 10*time.Second, netguard.WithPrivateUpstreams())
 	providers := NewProviderHandler(pg.Providers, pg.Routes, env.cipher, providerClient, nil)
@@ -99,6 +100,9 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	departments := NewDepartmentHandler(pg.Departments)
 	env.settings = NewSettingsHandler(pg.Settings, pg.Admins, env.cipher, nil, time.Now, nil)
 	adminUsers := NewAdminUsersHandler(pg.Admins, nil)
+	portalConfig := portalcfg.NewProvider(pg.Settings, time.Minute, time.Now, nil)
+	tokenRequests := NewTokenRequestHandler(pg.TokenRequests, pg.Admins, portalConfig, time.Now, nil)
+	portalAccounts := NewPortalAccountHandler(pg.Accounts, pg.Employees, pg.Admins, nil)
 
 	r := gin.New()
 	api := r.Group("/admin/api")
@@ -109,9 +113,21 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	authed.POST("/auth/logout", authHandler.Logout)
 
 	authed.GET("/employees", employees.List)
-	authed.GET("/departments", departments.List)
+	authed.GET("/departments", departments.Directory)
 	authed.POST("/employees", adminauth.RequireRole("operator"), employees.Create)
 	authed.PUT("/employees/:id", adminauth.RequireRole("operator"), employees.Update)
+
+	authed.GET("/employees/:id/portal-account", adminauth.RequireRole("operator"), portalAccounts.Get)
+	authed.GET("/token-requests", tokenRequests.List)
+	write := authed.Group("", adminauth.RequireRole("operator"))
+	write.POST("/departments", departments.Create)
+	write.PUT("/departments/:id", departments.Rename)
+	write.DELETE("/departments/:id", departments.Delete)
+	write.POST("/token-requests/:id/approve", tokenRequests.Approve)
+	write.POST("/token-requests/:id/deny", tokenRequests.Deny)
+	write.POST("/employees/:id/portal-account", portalAccounts.Create)
+	write.POST("/employees/:id/portal-account/reset-password", portalAccounts.ResetPassword)
+	write.DELETE("/employees/:id/portal-account", portalAccounts.Delete)
 
 	authed.GET("/tokens", tokens.List)
 	authed.POST("/tokens", adminauth.RequireRole("operator"), tokens.Create)
@@ -152,6 +168,8 @@ func newAdminEnv(t *testing.T) *adminEnv {
 	super.POST("/settings/smtp/test", env.settings.TestSMTP)
 	super.GET("/settings/audit", env.settings.GetAuditSettings)
 	super.PUT("/settings/audit", env.settings.PutAuditSettings)
+	super.GET("/settings/portal", env.settings.GetPortal)
+	super.PUT("/settings/portal", env.settings.PutPortal)
 
 	super.GET("/admin-users", adminUsers.List)
 	super.POST("/admin-users", adminUsers.Create)

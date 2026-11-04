@@ -27,6 +27,9 @@ import (
 	"github.com/company/api-key/internal/gateway"
 	"github.com/company/api-key/internal/metrics"
 	"github.com/company/api-key/internal/netguard"
+	"github.com/company/api-key/internal/portalapi"
+	"github.com/company/api-key/internal/portalauth"
+	"github.com/company/api-key/internal/portalcfg"
 	"github.com/company/api-key/internal/proxy"
 	"github.com/company/api-key/internal/quota"
 	"github.com/company/api-key/internal/ratelimit"
@@ -142,7 +145,7 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, opts Opti
 	now := time.Now
 	authSvc := auth.New(stores.Tokens, stores.Employees, tokenCache, cfg.TrustedProxies, now)
 	adminSvc := adminauth.New(stores.Admins, limiter, now, time.Duration(cfg.AdminSessionTTLHours)*time.Hour)
-	quotaSvc := quota.New(stores.Tokens, cfg.DefaultReserveTokens, now)
+	quotaSvc := quota.New(stores.EmployeeQuotas, cfg.DefaultReserveTokens, now)
 
 	if err := dlp.EnsureBuiltinRules(ctx, stores.DLPRules); err != nil {
 		return nil, fmt.Errorf("app: ensure builtin DLP rules: %w", err)
@@ -249,20 +252,28 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, opts Opti
 	}
 
 	testClient := netguard.NewClient(10*time.Second, 10*time.Second, netguardOptions(cfg)...)
-	authHandler := adminapi.NewAuthHandler(adminSvc, cfg.CookieSecure)
+	portalConfig := portalcfg.NewProvider(stores.Settings, 10*time.Second, now, logger)
+	authHandler := adminapi.NewAuthHandler(adminSvc, cfg.CookieSecure, cfg.TrustedProxies)
 	adminUsersHandler := adminapi.NewAdminUsersHandler(stores.Admins, cfg.TrustedProxies)
 	auditHandler := adminapi.NewAuditHandler(stores.Audit, stores.Admins, cipher, now, cfg.TrustedProxies)
 	dashboardHandler := adminapi.NewDashboardHandler(stores.Audit, stores.Dashboard, now)
 	departmentHandler := adminapi.NewDepartmentHandler(stores.Departments)
 	dlpRuleHandler := adminapi.NewDLPRuleHandler(stores.DLPRules, refreshDLP)
 	dlpTestHandler := adminapi.NewDLPTestHandler(stores.DLPRules)
-	employeeHandler := adminapi.NewEmployeeHandler(stores.Employees)
+	employeeHandler := adminapi.NewEmployeeHandler(stores.Employees, stores.EmployeeQuotas, portalConfig)
 	providerHandler := adminapi.NewProviderHandler(stores.Providers, stores.Routes, cipher, testClient, refreshResolver)
 	routeHandler := adminapi.NewRouteHandler(stores.Routes, stores.Providers, refreshResolver)
 	settingsHandler := adminapi.NewSettingsHandler(stores.Settings, stores.Admins, cipher, func(cfg alert.SMTPConfig) alert.Mailer {
 		return alert.NewMailer(cfg)
 	}, now, cfg.TrustedProxies)
 	tokenHandler := adminapi.NewTokenHandler(stores.Tokens, stores.Employees, now)
+	quotaHandler := adminapi.NewEmployeeQuotaHandler(stores.EmployeeQuotas, stores.Employees, stores.Admins, now, cfg.TrustedProxies)
+
+	portalAuth := portalauth.New(stores.Accounts, stores.Employees, limiter, now,
+		time.Duration(cfg.PortalSessionTTLHours)*time.Hour)
+	tokenRequestHandler := adminapi.NewTokenRequestHandler(stores.TokenRequests, stores.Admins, portalConfig, now, cfg.TrustedProxies)
+	portalAccountHandler := adminapi.NewPortalAccountHandler(stores.Accounts, stores.Employees, stores.Admins, cfg.TrustedProxies)
+	settingsHandler.SetPortalInvalidate(portalConfig.Invalidate)
 
 	gatewayHandler := gateway.New(gateway.HandlerDeps{
 		Auth:           authSvc,
@@ -289,18 +300,35 @@ func New(ctx context.Context, cfg *config.Config, logger *slog.Logger, opts Opti
 		Gateway: gatewayHandler.Handle,
 		RegisterAdmin: func(group *gin.RouterGroup) {
 			registerAdminRoutes(group, adminSvc, routeSet{
-				auth:        authHandler,
-				adminUsers:  adminUsersHandler,
-				audit:       auditHandler,
-				dashboard:   dashboardHandler,
-				dlpRules:    dlpRuleHandler,
-				dlpTest:     dlpTestHandler,
-				employees:   employeeHandler,
-				departments: departmentHandler,
-				providers:   providerHandler,
-				routes:      routeHandler,
-				settings:    settingsHandler,
-				tokens:      tokenHandler,
+				auth:           authHandler,
+				adminUsers:     adminUsersHandler,
+				audit:          auditHandler,
+				dashboard:      dashboardHandler,
+				dlpRules:       dlpRuleHandler,
+				dlpTest:        dlpTestHandler,
+				employees:      employeeHandler,
+				departments:    departmentHandler,
+				providers:      providerHandler,
+				routes:         routeHandler,
+				settings:       settingsHandler,
+				tokens:         tokenHandler,
+				tokenRequests:  tokenRequestHandler,
+				portalAccounts: portalAccountHandler,
+				employeeQuotas: quotaHandler,
+			})
+		},
+		RegisterPortal: func(group *gin.RouterGroup) {
+			portalapi.Register(group, portalapi.Dependencies{
+				Auth:         portalAuth,
+				Tokens:       stores.Tokens,
+				Quotas:       stores.EmployeeQuotas,
+				Requests:     stores.TokenRequests,
+				Audit:        stores.Audit,
+				AuditLogs:    stores.EmployeeAudits,
+				Config:         portalConfig,
+				Clock:          now,
+				CookieSecure:   cfg.CookieSecure,
+				TrustedProxies: cfg.TrustedProxies,
 			})
 		},
 	})
@@ -452,18 +480,21 @@ func (r *dynamicResolver) Resolve(path, model string) (proxy.Target, error) {
 }
 
 type routeSet struct {
-	auth        *adminapi.AuthHandler
-	adminUsers  *adminapi.AdminUsersHandler
-	audit       *adminapi.AuditHandler
-	dashboard   *adminapi.DashboardHandler
-	dlpRules    *adminapi.DLPRuleHandler
-	dlpTest     *adminapi.DLPTestHandler
-	employees   *adminapi.EmployeeHandler
-	departments *adminapi.DepartmentHandler
-	providers   *adminapi.ProviderHandler
-	routes      *adminapi.RouteHandler
-	settings    *adminapi.SettingsHandler
-	tokens      *adminapi.TokenHandler
+	auth           *adminapi.AuthHandler
+	adminUsers     *adminapi.AdminUsersHandler
+	audit          *adminapi.AuditHandler
+	dashboard      *adminapi.DashboardHandler
+	dlpRules       *adminapi.DLPRuleHandler
+	dlpTest        *adminapi.DLPTestHandler
+	employees      *adminapi.EmployeeHandler
+	departments    *adminapi.DepartmentHandler
+	providers      *adminapi.ProviderHandler
+	routes         *adminapi.RouteHandler
+	settings       *adminapi.SettingsHandler
+	tokens         *adminapi.TokenHandler
+	tokenRequests  *adminapi.TokenRequestHandler
+	portalAccounts *adminapi.PortalAccountHandler
+	employeeQuotas *adminapi.EmployeeQuotaHandler
 }
 
 func registerAdminRoutes(group *gin.RouterGroup, adminSvc *adminauth.Service, h routeSet) {
@@ -481,8 +512,12 @@ func registerAdminRoutes(group *gin.RouterGroup, adminSvc *adminauth.Service, h 
 	authed.GET("/dashboard/dlp", h.dashboard.DLP)
 	authed.GET("/dashboard/summary", h.dashboard.Summary)
 	authed.GET("/employees", h.employees.List)
-	authed.GET("/departments", h.departments.List)
+	authed.GET("/departments", h.departments.Directory)
+	// Portal account status is operator-only; auditors do not need it.
+	authed.GET("/employees/:id/portal-account", adminauth.RequireRole("operator"), h.portalAccounts.Get)
 	authed.GET("/tokens", h.tokens.List)
+	authed.GET("/token-requests", h.tokenRequests.List)
+	authed.GET("/employees/:id/quota", h.employeeQuotas.Get)
 	authed.GET("/providers", h.providers.List)
 	// Model discovery decrypts the stored provider key and calls upstream, so
 	// it is an operator action rather than a read-only audit operation.
@@ -498,10 +533,19 @@ func registerAdminRoutes(group *gin.RouterGroup, adminSvc *adminauth.Service, h 
 	write.Use(adminauth.RequireCSRF(), adminauth.RequireRole("operator"))
 	write.POST("/employees", h.employees.Create)
 	write.PUT("/employees/:id", h.employees.Update)
+	write.PUT("/employees/:id/quota", h.employeeQuotas.Update)
+	write.POST("/departments", h.departments.Create)
+	write.PUT("/departments/:id", h.departments.Rename)
+	write.DELETE("/departments/:id", h.departments.Delete)
 	write.POST("/tokens", h.tokens.Create)
 	write.PUT("/tokens/:id", h.tokens.Update)
 	write.POST("/tokens/:id/revoke", h.tokens.Revoke)
 	write.POST("/tokens/:id/rotate", h.tokens.Rotate)
+	write.POST("/token-requests/:id/approve", h.tokenRequests.Approve)
+	write.POST("/token-requests/:id/deny", h.tokenRequests.Deny)
+	write.POST("/employees/:id/portal-account", h.portalAccounts.Create)
+	write.POST("/employees/:id/portal-account/reset-password", h.portalAccounts.ResetPassword)
+	write.DELETE("/employees/:id/portal-account", h.portalAccounts.Delete)
 	write.POST("/providers", h.providers.Create)
 	write.PUT("/providers/:id", h.providers.Update)
 	write.DELETE("/providers/:id", h.providers.Delete)
@@ -527,4 +571,6 @@ func registerAdminRoutes(group *gin.RouterGroup, adminSvc *adminauth.Service, h 
 	super.POST("/settings/smtp/test", h.settings.TestSMTP)
 	super.GET("/settings/audit", h.settings.GetAuditSettings)
 	super.PUT("/settings/audit", h.settings.PutAuditSettings)
+	super.GET("/settings/portal", h.settings.GetPortal)
+	super.PUT("/settings/portal", h.settings.PutPortal)
 }

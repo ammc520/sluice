@@ -414,7 +414,10 @@ func (a *adminClient) login(username, password string) *http.Response {
 	if err != nil {
 		a.t.Fatal(err)
 	}
-	for _, cookie := range a.client.Jar.Cookies(base) {
+	// The CSRF cookie is scoped to /admin, so look it up as the SPA would
+	// rather than from the bare origin.
+	adminURL := base.ResolveReference(&url.URL{Path: "/admin/"})
+	for _, cookie := range a.client.Jar.Cookies(adminURL) {
 		if cookie.Name == "csrf_token" {
 			a.csrf = cookie.Value
 		}

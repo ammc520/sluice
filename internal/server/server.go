@@ -26,6 +26,9 @@ type Dependencies struct {
 	// RegisterAdmin mounts the admin API under /admin/api. Nil leaves the
 	// admin surface unmounted.
 	RegisterAdmin func(*gin.RouterGroup)
+	// RegisterPortal mounts the employee self-service API under /portal/api.
+	// Nil leaves the portal surface unmounted.
+	RegisterPortal func(*gin.RouterGroup)
 }
 
 // Server wraps the Gin engine and the underlying HTTP server.
@@ -67,6 +70,9 @@ func (s *Server) routes() {
 	}
 	if s.deps.RegisterAdmin != nil {
 		s.deps.RegisterAdmin(s.engine.Group("/admin/api"))
+	}
+	if s.deps.RegisterPortal != nil {
+		s.deps.RegisterPortal(s.engine.Group("/portal/api"))
 	}
 
 	s.engine.GET("/healthz", func(c *gin.Context) {

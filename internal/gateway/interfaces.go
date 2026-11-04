@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/company/api-key/internal/alert"
 	"github.com/company/api-key/internal/audit"
 	"github.com/company/api-key/internal/auth"
@@ -26,9 +28,10 @@ type Limiter interface {
 	Allow(context.Context, string, int) (bool, time.Duration, error)
 }
 
-// Quota reserves and settles token quota around an upstream call.
+// Quota reserves and settles the employee's shared quota around an upstream
+// call. The token is only the credential (and may carry an optional cap).
 type Quota interface {
-	Reserve(context.Context, *store.Token, quota.Endpoint, int64) (store.Reservation, error)
+	Reserve(context.Context, uuid.UUID, *store.Token, quota.Endpoint, int64) (store.Reservation, error)
 	Settle(context.Context, store.Reservation, int64) error
 }
 

@@ -23,16 +23,16 @@ const (
 // arithmetic or hold an absurd amount of quota.
 const MaxReservePerRequest int64 = 1_000_000
 
-// Service applies quota rules on top of the token store.
+// Service applies quota rules on top of the employee quota store.
 type Service struct {
-	tokens         store.TokenStore
+	quotas         store.EmployeeQuotaStore
 	defaultReserve int64
 	clock          func() time.Time
 }
 
 // New creates a quota service. defaultReserve is used when a generation
 // request does not declare max_tokens.
-func New(tokens store.TokenStore, defaultReserve int64, clock func() time.Time) *Service {
+func New(quotas store.EmployeeQuotaStore, defaultReserve int64, clock func() time.Time) *Service {
 	if defaultReserve <= 0 {
 		defaultReserve = 4096
 	}
@@ -42,41 +42,33 @@ func New(tokens store.TokenStore, defaultReserve int64, clock func() time.Time) 
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Service{tokens: tokens, defaultReserve: defaultReserve, clock: clock}
+	return &Service{quotas: quotas, defaultReserve: defaultReserve, clock: clock}
 }
 
-// Reserve holds quota before the upstream call.
-func (s *Service) Reserve(ctx context.Context, t *store.Token, endpoint Endpoint, maxTokens int64) (store.Reservation, error) {
+// Reserve holds quota from the employee's shared pool before the upstream
+// call. The key's optional cap is enforced in the same transaction.
+func (s *Service) Reserve(ctx context.Context, employeeID uuid.UUID, t *store.Token, endpoint Endpoint, maxTokens int64) (store.Reservation, error) {
 	if endpoint == EndpointMetadata {
 		return store.Reservation{}, nil
 	}
 
-	var reserve int64
-	switch endpoint {
-	case EndpointEmbedding:
+	reserve := maxTokens
+	if endpoint == EndpointEmbedding {
 		// Embeddings report input tokens, which can arrive in parallel.
 		// Holding zero would let every concurrent call pass the remaining
 		// check at once (TOCTOU), so use the default hold and settle it.
 		reserve = s.defaultReserve
-	default:
-		if t.QuotaType == "requests" {
-			reserve = 1
-		} else if maxTokens > 0 {
-			reserve = maxTokens
-			if reserve > MaxReservePerRequest {
-				reserve = MaxReservePerRequest
-			}
-		} else {
-			reserve = s.defaultReserve
-		}
 	}
-	return s.tokens.ReserveQuota(ctx, t.ID, reserve, s.clock())
+	if reserve > MaxReservePerRequest {
+		reserve = MaxReservePerRequest
+	}
+	return s.quotas.Reserve(ctx, employeeID, t.ID, reserve, s.defaultReserve, s.clock())
 }
 
 // Settle adjusts the hold using the actual usage reported by the upstream.
 func (s *Service) Settle(ctx context.Context, r store.Reservation, actual int64) error {
-	if r.TokenID == uuid.Nil {
+	if r.EmployeeID == uuid.Nil || r.TokenID == uuid.Nil {
 		return nil
 	}
-	return s.tokens.SettleQuota(ctx, r, actual)
+	return s.quotas.Settle(ctx, r, actual)
 }
