@@ -35,7 +35,13 @@ export interface Employee {
   name: string
   email: string
   department_id: number | null
+  department_name: string
   status: number
+  quota_type: QuotaType | null
+  quota_period: QuotaPeriod | null
+  quota_total: number | null
+  quota_used: number
+  quota_period_start: string | null
   created_at: string
   updated_at: string
 }
@@ -43,6 +49,22 @@ export interface Employee {
 export interface Department {
   id: number
   name: string
+  employee_count: number
+}
+
+export interface DepartmentDirectory {
+  items: Department[]
+  unassigned_count: number
+  total_employees: number
+}
+
+export interface DepartmentPayload {
+  name: string
+}
+
+export interface DepartmentDeleteResult {
+  deleted: boolean
+  moved_employees: number
 }
 
 export interface EmployeePayload {
@@ -59,6 +81,7 @@ export type QuotaPeriod = 'daily' | 'monthly' | 'total'
 export interface Token {
   id: string
   employee_id: string
+  name: string
   token_prefix: string
   token_last4: string
   quota_type: QuotaType
@@ -76,6 +99,7 @@ export interface Token {
 
 export interface TokenPayload {
   employee_id: string
+  name: string
   quota_type: QuotaType
   quota_period: QuotaPeriod
   quota_total: number | null
@@ -232,7 +256,14 @@ export interface DLPStat {
   hits: number
 }
 
-export type DashboardRange = 'today' | '24h' | '7d' | '30d'
+export type DashboardRange =
+  | 'today'
+  | 'yesterday'
+  | '24h'
+  | '7d'
+  | '30d'
+  | '90d'
+  | 'custom'
 export type DashboardInterval = 'hour' | 'day'
 
 export interface DashboardMetric {
@@ -280,10 +311,19 @@ export interface DashboardProviderStat {
   p95_latency_ms: number
 }
 
+export interface DashboardModelTrendPoint {
+  bucket: string
+  requests: number
+  tokens: number
+  errors: number
+}
+
 export interface DashboardModelStat {
   model: string
   requests: number
   tokens: number
+  errors: number
+  trend: DashboardModelTrendPoint[]
 }
 
 export interface DashboardQuotaBrief {
@@ -475,4 +515,262 @@ export interface AdminUserListResponse {
 
 export interface ResetPasswordResult {
   reset: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Employee portal
+// ---------------------------------------------------------------------------
+
+export interface PortalEmployee {
+  id: string
+  employee_no: string
+  name: string
+  email: string
+  department_id: number | null
+}
+
+export interface PortalLoginResponse {
+  employee: PortalEmployee
+  must_change_password: boolean
+  expires_in: number
+}
+
+export interface PortalMeResponse {
+  employee: PortalEmployee
+  must_change_password: boolean
+}
+
+export interface PortalPasswordChangeResult {
+  changed: boolean
+  relogin_required: boolean
+}
+
+export interface PortalQuota {
+  quota_type: QuotaType
+  quota_period: QuotaPeriod
+  quota_total: number
+  quota_used: number
+  quota_remaining: number
+  period_start: string
+  resets_at: string | null
+  active_tokens: number
+  max_active_tokens: number
+  self_service_enabled: boolean
+  allow_self_rotate: boolean
+  allow_self_revoke: boolean
+  can_request_increase: boolean
+}
+
+export interface PortalTokenCreatePayload {
+  name: string
+  quota_total: number | null
+  rate_limit_rpm?: number
+}
+
+export interface PortalTokenCreateResult {
+  token: string
+  item: PortalToken
+}
+
+export interface PortalTokenRotateResult {
+  token: string
+  item: PortalToken
+}
+
+export interface PortalToken {
+  id: string
+  name: string
+  token_prefix: string
+  token_last4: string
+  quota_type: QuotaType
+  quota_period: QuotaPeriod
+  quota_total: number | null
+  quota_used: number
+  rate_limit_rpm: number
+  status: number
+  expires_at: string | null
+  created_at: string
+  last_used_at: string | null
+}
+
+export interface PortalUsageSummary {
+  requests: number
+  total_tokens: number
+  prompt_tokens: number
+  completion_tokens: number
+  errors: number
+  dlp_requests: number
+  dlp_hits: number
+  p95_latency_ms: number
+}
+
+export interface PortalUsagePoint {
+  day: string
+  requests: number
+  tokens: number
+  errors: number
+}
+
+export type PortalTrendMetric = 'requests' | 'tokens'
+
+export interface PortalModelPoint {
+  day: string
+  requests: number
+  tokens: number
+}
+
+export interface PortalModelUsage {
+  model: string
+  requests: number
+  tokens: number
+  errors: number
+  trend: PortalModelPoint[]
+}
+
+export interface PortalSummaryResponse {
+  from: string
+  to: string
+  summary: PortalUsageSummary
+  trend: PortalUsagePoint[]
+  models: PortalModelUsage[]
+}
+
+export interface PortalUsageItem {
+  id: number
+  event_time: string
+  model: string
+  path: string
+  status_code: number
+  error_code?: string
+  latency_ms: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  usage_estimated: boolean
+  dlp_action: string
+  client_disconnected: boolean
+}
+
+export interface PortalUsageListResponse {
+  items: PortalUsageItem[]
+  next_cursor: string
+  from: string
+  to: string
+}
+
+export type TokenRequestStatus =
+  | 'pending'
+  | 'approved'
+  | 'granted'
+  | 'denied'
+  | 'cancelled'
+  | 'claimed'
+  | 'expired'
+
+export type TokenRequestKind = 'quota' | 'token'
+
+export interface PortalTokenRequest {
+  id: string
+  kind: TokenRequestKind
+  reason: string
+  requested_total: number | null
+  status: TokenRequestStatus
+  review_note: string
+  reviewed_at: string | null
+  granted_quota_type: QuotaType | null
+  granted_quota_period: QuotaPeriod | null
+  granted_total: number | null
+  granted_rpm: number | null
+  granted_expires_at: string | null
+  expires_at: string
+  created_at: string
+  updated_at: string
+  can_cancel: boolean
+  can_claim: boolean
+}
+
+export interface PortalTokenRequestListResponse {
+  items: PortalTokenRequest[]
+}
+
+export interface PortalClaimResult {
+  token: string
+  token_id: string
+  token_prefix: string
+  token_last4: string
+  request: PortalTokenRequest
+}
+
+export interface AdminTokenRequest {
+  id: string
+  kind: TokenRequestKind
+  employee_id: string
+  employee_no: string
+  employee_name: string
+  department_name: string
+  reason: string
+  requested_total: number | null
+  status: TokenRequestStatus
+  review_note: string
+  reviewed_at: string | null
+  granted_quota_type: QuotaType | null
+  granted_quota_period: QuotaPeriod | null
+  granted_total: number | null
+  granted_rpm: number | null
+  granted_expires_at: string | null
+  token_id: string | null
+  expires_at: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PortalAccountStatus {
+  exists: boolean
+  must_change_password?: boolean
+  last_login_at?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface PortalAccountCredentialResult {
+  employee_id: string
+  initial_password: string
+}
+
+export interface PortalSettings {
+  enabled: boolean
+  default_quota: {
+    type: QuotaType
+    period: QuotaPeriod
+    total: number
+    rpm: number
+    expires_days: number
+  }
+  max_request_total: number
+  request_ttl_days: number
+  claim_ttl_hours: number
+  usage_max_days: number
+  self_service_enabled: boolean
+  max_active_tokens: number
+  allow_self_rotate: boolean
+  allow_self_revoke: boolean
+  auto_approve_quota: boolean
+}
+
+export interface EmployeeQuota {
+  employee_id: string
+  quota_type: QuotaType
+  quota_period: QuotaPeriod
+  quota_total: number
+  quota_used: number
+  quota_remaining: number
+  period_start: string
+  resets_at: string | null
+  updated_at: string
+}
+
+export interface EmployeeQuotaPayload {
+  quota_type: QuotaType
+  quota_period: QuotaPeriod
+  quota_total: number
 }

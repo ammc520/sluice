@@ -8,6 +8,7 @@ import { apiErrorMessage } from '../api/errors'
 import type {
   AuditSettings,
   AuditSettingsPayload,
+  PortalSettings,
   SMTPTestResult,
   SMTPSettings,
   SMTPSettingsPayload,
@@ -45,6 +46,29 @@ const auditForm = ref<AuditSettings>({
 const auditLoading = ref(false)
 const auditSaving = ref(false)
 const auditError = ref('')
+
+const portalForm = ref<PortalSettings>({
+  enabled: false,
+  default_quota: {
+    type: 'tokens',
+    period: 'monthly',
+    total: 1_000_000,
+    rpm: 60,
+    expires_days: 180,
+  },
+  max_request_total: 5_000_000,
+  request_ttl_days: 14,
+  claim_ttl_hours: 72,
+  usage_max_days: 90,
+  self_service_enabled: true,
+  max_active_tokens: 5,
+  allow_self_rotate: true,
+  allow_self_revoke: true,
+  auto_approve_quota: false,
+})
+const portalLoading = ref(false)
+const portalSaving = ref(false)
+const portalError = ref('')
 
 function applySMTP(settings: SMTPSettings): void {
   loadedSMTP.value = settings
@@ -194,9 +218,98 @@ async function saveAuditSettings(): Promise<void> {
   }
 }
 
+async function loadPortalSettings(): Promise<void> {
+  portalLoading.value = true
+  portalError.value = ''
+  try {
+    portalForm.value = await api.get<PortalSettings>('/settings/portal')
+  } catch (error) {
+    portalError.value = apiErrorMessage(error, '员工门户设置加载失败')
+  } finally {
+    portalLoading.value = false
+  }
+}
+
+function validatePortalSettings(): string {
+  const settings = portalForm.value
+  if (settings.default_quota.total < 0) {
+    return '默认额度不能为负数'
+  }
+  if (
+    !Number.isInteger(settings.default_quota.rpm) ||
+    settings.default_quota.rpm < 1 ||
+    settings.default_quota.rpm > 100000
+  ) {
+    return '默认速率限制必须在 1 到 100000 之间'
+  }
+  if (
+    !Number.isInteger(settings.default_quota.expires_days) ||
+    settings.default_quota.expires_days < 1 ||
+    settings.default_quota.expires_days > 3650
+  ) {
+    return '默认有效期必须在 1 到 3650 天之间'
+  }
+  if (
+    !Number.isInteger(settings.max_request_total) ||
+    settings.max_request_total < 1
+  ) {
+    return '单次申请上限必须是正整数'
+  }
+  if (
+    !Number.isInteger(settings.request_ttl_days) ||
+    settings.request_ttl_days < 1 ||
+    settings.request_ttl_days > 90
+  ) {
+    return '申请有效天数必须在 1 到 90 之间'
+  }
+  if (
+    !Number.isInteger(settings.claim_ttl_hours) ||
+    settings.claim_ttl_hours < 1 ||
+    settings.claim_ttl_hours > 720
+  ) {
+    return '领取窗口必须在 1 到 720 小时之间'
+  }
+  if (
+    !Number.isInteger(settings.usage_max_days) ||
+    settings.usage_max_days < 1 ||
+    settings.usage_max_days > 365
+  ) {
+    return '用量查询范围必须在 1 到 365 天之间'
+  }
+  if (
+    !Number.isInteger(settings.max_active_tokens) ||
+    settings.max_active_tokens < 1 ||
+    settings.max_active_tokens > 50
+  ) {
+    return '有效 Key 上限必须在 1 到 50 之间'
+  }
+  return ''
+}
+
+async function savePortalSettings(): Promise<void> {
+  portalError.value = validatePortalSettings()
+  if (portalError.value) return
+
+  portalSaving.value = true
+  try {
+    portalForm.value = await api.put<PortalSettings>(
+      '/settings/portal',
+      portalForm.value,
+    )
+    ElMessage.success(
+      portalForm.value.enabled ? '员工门户设置已保存并启用' : '员工门户已关闭',
+    )
+  } catch (error) {
+    portalError.value = apiErrorMessage(error, '员工门户设置保存失败')
+  } finally {
+    portalSaving.value = false
+  }
+}
+
 onMounted(() => {
   void loadSMTP()
   void loadAuditSettings()
+  void loadPortalSettings()
 })
 </script>
 
@@ -205,7 +318,7 @@ onMounted(() => {
     <section class="page-heading">
       <div>
         <h2>系统设置</h2>
-        <p>配置 DLP 告警邮件与审计日志保留策略。仅超级管理员可访问。</p>
+        <p>配置 DLP 告警邮件、审计日志保留策略与员工门户。仅超级管理员可访问。</p>
       </div>
     </section>
 
@@ -388,6 +501,196 @@ onMounted(() => {
         </el-card>
       </el-col>
     </el-row>
+
+    <el-card v-loading="portalLoading" class="settings-card portal-card" shadow="never">
+      <div class="card-heading">
+        <div>
+          <h3>员工门户</h3>
+          <p>
+            控制员工自助门户、员工默认共享额度、自助 Key 与提额审批策略。关闭门户后员工将无法登录。
+          </p>
+        </div>
+        <el-tag :type="portalForm.enabled ? 'success' : 'info'" size="small" effect="plain">
+          {{ portalForm.enabled ? '已启用' : '已关闭' }}
+        </el-tag>
+      </div>
+
+      <el-form label-position="top" @submit.prevent="savePortalSettings">
+        <el-form-item label="启用员工门户">
+          <div class="switch-field">
+            <el-switch
+              v-model="portalForm.enabled"
+              active-text="启用"
+              inactive-text="关闭"
+            />
+            <div class="field-hint">
+              关闭后门户 API 返回 404，已登录员工的会话也不再可用。
+            </div>
+          </div>
+        </el-form-item>
+
+        <div class="form-grid form-grid-3">
+          <el-form-item label="默认额度类型">
+            <el-select v-model="portalForm.default_quota.type">
+              <el-option label="Token 数" value="tokens" />
+              <el-option label="请求数" value="requests" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="默认额度周期">
+            <el-select v-model="portalForm.default_quota.period">
+              <el-option label="每日" value="daily" />
+              <el-option label="每月" value="monthly" />
+              <el-option label="总量" value="total" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="默认额度值">
+            <el-input-number
+              v-model="portalForm.default_quota.total"
+              :min="0"
+              :controls="false"
+              class="full-width"
+            />
+          </el-form-item>
+        </div>
+
+        <div class="form-grid form-grid-3">
+          <el-form-item label="默认速率限制（RPM）">
+            <el-input-number
+              v-model="portalForm.default_quota.rpm"
+              :min="1"
+              :max="100000"
+              :controls="false"
+              class="full-width"
+            />
+          </el-form-item>
+          <el-form-item label="默认有效期（天）">
+            <el-input-number
+              v-model="portalForm.default_quota.expires_days"
+              :min="1"
+              :max="3650"
+              :controls="false"
+              class="full-width"
+            />
+          </el-form-item>
+          <el-form-item label="单次申请额度上限">
+            <el-input-number
+              v-model="portalForm.max_request_total"
+              :min="1"
+              :controls="false"
+              class="full-width"
+            />
+          </el-form-item>
+        </div>
+
+        <div class="form-grid form-grid-3">
+          <el-form-item label="申请有效天数">
+            <el-input-number
+              v-model="portalForm.request_ttl_days"
+              :min="1"
+              :max="90"
+              :controls="false"
+              class="full-width"
+            />
+            <div class="field-hint">审批前申请单的有效期。</div>
+          </el-form-item>
+          <el-form-item label="领取窗口（小时）">
+            <el-input-number
+              v-model="portalForm.claim_ttl_hours"
+              :min="1"
+              :max="720"
+              :controls="false"
+              class="full-width"
+            />
+            <div class="field-hint">批准后员工必须在此时间内领取。</div>
+          </el-form-item>
+          <el-form-item label="用量查询最长天数">
+            <el-input-number
+              v-model="portalForm.usage_max_days"
+              :min="1"
+              :max="365"
+              :controls="false"
+              class="full-width"
+            />
+            <div class="field-hint">员工可查询的最长历史区间。</div>
+          </el-form-item>
+        </div>
+
+        <h4 class="sub-heading">自助 Key 与提额</h4>
+        <div class="form-grid form-grid-3">
+          <el-form-item label="允许员工自助创建 Key">
+            <div class="switch-field">
+              <el-switch
+                v-model="portalForm.self_service_enabled"
+                active-text="允许"
+                inactive-text="禁止"
+              />
+              <div class="field-hint">
+                关闭后员工只能使用管理员分配的 Key，也无法提交提额申请。
+              </div>
+            </div>
+          </el-form-item>
+          <el-form-item label="每位员工有效 Key 上限">
+            <el-input-number
+              v-model="portalForm.max_active_tokens"
+              :min="1"
+              :max="50"
+              :controls="false"
+              class="full-width"
+            />
+            <div class="field-hint">仅统计启用且未过期的 Key。</div>
+          </el-form-item>
+          <el-form-item label="提额自动批准">
+            <div class="switch-field">
+              <el-switch
+                v-model="portalForm.auto_approve_quota"
+                active-text="自动批准"
+                inactive-text="人工审批"
+              />
+              <div class="field-hint">
+                开启后提额申请立即生效；仍受「单次申请额度上限」约束。
+              </div>
+            </div>
+          </el-form-item>
+        </div>
+
+        <div class="form-grid form-grid-3">
+          <el-form-item label="允许自助轮换 Key">
+            <el-switch
+              v-model="portalForm.allow_self_rotate"
+              active-text="允许"
+              inactive-text="禁止"
+            />
+          </el-form-item>
+          <el-form-item label="允许自助撤销 Key">
+            <el-switch
+              v-model="portalForm.allow_self_revoke"
+              active-text="允许"
+              inactive-text="禁止"
+            />
+          </el-form-item>
+        </div>
+
+        <el-alert
+          v-if="portalError"
+          :title="portalError"
+          type="error"
+          :closable="false"
+          show-icon
+          class="form-alert"
+        />
+
+        <div class="form-actions">
+          <el-button
+            data-test="save-portal-settings"
+            type="primary"
+            :loading="portalSaving"
+            @click="savePortalSettings"
+          >
+            保存设置
+          </el-button>
+        </div>
+      </el-form>
+    </el-card>
   </div>
 </template>
 
@@ -449,6 +752,19 @@ onMounted(() => {
   gap: 16px;
 }
 
+.form-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.sub-heading {
+  margin: 22px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid #eef3f9;
+  color: #31445e;
+  font-size: 13px;
+  font-weight: 650;
+}
+
 .full-width {
   width: 100%;
 }
@@ -480,8 +796,15 @@ onMounted(() => {
   gap: 10px;
 }
 
+@media (max-width: 960px) {
+  .form-grid-3 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 @media (max-width: 640px) {
-  .form-grid {
+  .form-grid,
+  .form-grid-3 {
     grid-template-columns: 1fr;
     gap: 0;
   }

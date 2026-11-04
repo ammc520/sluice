@@ -13,7 +13,13 @@ const alice: Employee = {
   name: 'Alice',
   email: 'alice@example.com',
   department_id: 1,
+  department_name: 'Engineering',
   status: 1,
+  quota_type: 'tokens',
+  quota_period: 'monthly',
+  quota_total: 1_000_000,
+  quota_used: 0,
+  quota_period_start: '2026-11-01T00:00:00Z',
   created_at: '2026-11-02T00:00:00Z',
   updated_at: '2026-11-02T00:00:00Z',
 }
@@ -21,6 +27,7 @@ const alice: Employee = {
 const token: Token = {
   id: 'token-1',
   employee_id: 'employee-1',
+  name: 'CI',
   token_prefix: 'sk-company-abcd',
   token_last4: 'wxyz',
   quota_type: 'tokens',
