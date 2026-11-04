@@ -33,7 +33,7 @@
 	# Streaming (SSE) requires Caddy to flush each upstream chunk immediately.
 	@gateway path /v1/* /admin/api/* /portal/api/*
 	handle @gateway {
-		reverse_proxy gateway:8080 {
+		reverse_proxy sluice:8080 {
 			flush_interval -1
 			header_up X-Real-IP {remote_host}
 		}

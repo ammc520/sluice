@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func cstTime(year int, month time.Month, day, hour int) time.Time {

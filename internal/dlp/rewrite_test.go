@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func TestMaskingNestedAndEscapedStrings(t *testing.T) {

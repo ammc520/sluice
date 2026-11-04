@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 // DLPRuleHandler serves DLP rule administration endpoints.

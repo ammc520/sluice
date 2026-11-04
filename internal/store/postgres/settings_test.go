@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func TestSettingsStoreUpsert(t *testing.T) {

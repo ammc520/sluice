@@ -1,4 +1,4 @@
-# Build the gateway binary with the Go toolchain, then ship it on a small
+# Build the Sluice binary with the Go toolchain, then ship it on a small
 # Alpine base so the container has ca-certificates, tzdata, and wget for
 # Docker health checks. The process runs as an unprivileged user.
 FROM golang:1.23-alpine AS build
@@ -20,8 +20,8 @@ COPY migrations ./migrations
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w" \
-    -o /out/gateway \
-    ./cmd/gateway \
+    -o /out/sluice \
+    ./cmd/sluice \
     && CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags="-s -w" \
@@ -31,23 +31,23 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata wget \
-    && addgroup -S -g 10001 gateway \
-    && adduser -S -D -H -u 10001 -G gateway gateway \
-    && mkdir -p /app /var/lib/gateway/spool \
-    && chown -R gateway:gateway /app /var/lib/gateway
+    && addgroup -S -g 10001 sluice \
+    && adduser -S -D -H -u 10001 -G sluice sluice \
+    && mkdir -p /app /var/lib/sluice/spool \
+    && chown -R sluice:sluice /app /var/lib/sluice
 
 ENV TZ=Asia/Shanghai
 
 WORKDIR /app
 
-COPY --from=build /out/gateway /app/gateway
+COPY --from=build /out/sluice /app/sluice
 COPY --from=build /out/migrate /app/migrate
 # Migrations are embedded in both binaries; the files are kept in the image
 # for incident review.
 COPY --from=build /src/migrations /app/migrations
 
-USER gateway
+USER sluice
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/gateway"]
+ENTRYPOINT ["/app/sluice"]

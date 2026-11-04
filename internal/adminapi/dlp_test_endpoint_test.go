@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/company/api-key/internal/dlp"
+	"github.com/company/sluice/internal/dlp"
 )
 
 func TestDLPTestEndpointReturnsMaskedText(t *testing.T) {

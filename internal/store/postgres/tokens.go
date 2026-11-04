@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 const tokenColumns = `id, employee_id, name, token_hash, token_prefix, token_last4, quota_type,

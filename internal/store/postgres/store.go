@@ -12,8 +12,8 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/company/api-key/internal/store"
-	"github.com/company/api-key/migrations"
+	"github.com/company/sluice/internal/store"
+	"github.com/company/sluice/migrations"
 )
 
 // New wraps an existing connection pool. The pool remains owned by the caller.

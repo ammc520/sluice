@@ -49,9 +49,9 @@ async function logout(): Promise<void> {
     <header class="portal-header">
       <div class="header-inner">
         <router-link class="brand" to="/portal/overview">
-          <span class="brand-mark">API</span>
+          <span class="brand-mark">S</span>
           <span class="brand-text">
-            <strong>安全网关</strong>
+            <strong>Sluice</strong>
             <span>员工自助门户</span>
           </span>
         </router-link>

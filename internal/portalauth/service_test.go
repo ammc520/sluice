@@ -8,12 +8,12 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/portalauth"
-	"github.com/company/api-key/internal/ratelimit"
-	"github.com/company/api-key/internal/store"
-	"github.com/company/api-key/internal/store/postgres"
-	"github.com/company/api-key/internal/testutil"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/portalauth"
+	"github.com/company/sluice/internal/ratelimit"
+	"github.com/company/sluice/internal/store"
+	"github.com/company/sluice/internal/store/postgres"
+	"github.com/company/sluice/internal/testutil"
 )
 
 type testClock struct{ now time.Time }

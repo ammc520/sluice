@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func (e *adminEnv) seedTokenRequest(t *testing.T, reason string) *store.TokenRequest {

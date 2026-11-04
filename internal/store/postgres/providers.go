@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 const providerColumns = `id, name, protocol, base_url, api_key_enc, is_default, enabled,

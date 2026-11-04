@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 func (s *SettingsStore) Get(ctx context.Context, key string) (json.RawMessage, error) {

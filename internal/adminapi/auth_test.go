@@ -14,10 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/adminauth"
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/ratelimit"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/adminauth"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/ratelimit"
+	"github.com/company/sluice/internal/store"
 )
 
 type fakeAdminStore struct {

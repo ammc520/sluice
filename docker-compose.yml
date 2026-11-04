@@ -1,4 +1,4 @@
-name: api-gateway
+name: sluice
 
 x-logging: &default-logging
   driver: json-file
@@ -11,7 +11,7 @@ services:
     build:
       context: .
       dockerfile: deploy/web.Dockerfile
-    image: api-gateway-web:latest
+    image: sluice-web:latest
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:?set DOMAIN in .env.production}
@@ -23,7 +23,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      gateway:
+      sluice:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1"]
@@ -35,11 +35,11 @@ services:
     networks:
       - edge
 
-  gateway:
+  sluice:
     build:
       context: .
-      dockerfile: deploy/gateway.Dockerfile
-    image: api-gateway:latest
+      dockerfile: deploy/sluice.Dockerfile
+    image: sluice:latest
     restart: unless-stopped
     env_file:
       - path: .env.production
@@ -49,9 +49,9 @@ services:
       # DATABASE_URL comes from .env.production. Use the least-privilege
       # gateway_app role there, not the PostgreSQL superuser.
       REDIS_URL: redis://redis:6379/0
-      AUDIT_SPOOL_DIR: /var/lib/gateway/spool
+      AUDIT_SPOOL_DIR: /var/lib/sluice/spool
     volumes:
-      - audit-spool:/var/lib/gateway/spool
+      - audit-spool:/var/lib/sluice/spool
     tmpfs:
       - /tmp:size=64m,noexec,nosuid
     read_only: true

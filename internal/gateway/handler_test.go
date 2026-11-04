@@ -15,14 +15,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/alert"
-	"github.com/company/api-key/internal/audit"
-	"github.com/company/api-key/internal/auth"
-	"github.com/company/api-key/internal/dlp"
-	"github.com/company/api-key/internal/metrics"
-	"github.com/company/api-key/internal/proxy"
-	"github.com/company/api-key/internal/quota"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/alert"
+	"github.com/company/sluice/internal/audit"
+	"github.com/company/sluice/internal/auth"
+	"github.com/company/sluice/internal/dlp"
+	"github.com/company/sluice/internal/metrics"
+	"github.com/company/sluice/internal/proxy"
+	"github.com/company/sluice/internal/quota"
+	"github.com/company/sluice/internal/store"
 )
 
 type fakeAuth struct {

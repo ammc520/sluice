@@ -13,14 +13,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/company/api-key/internal/adminauth"
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/netguard"
-	"github.com/company/api-key/internal/portalcfg"
-	"github.com/company/api-key/internal/ratelimit"
-	"github.com/company/api-key/internal/store"
-	"github.com/company/api-key/internal/store/postgres"
-	"github.com/company/api-key/internal/testutil"
+	"github.com/company/sluice/internal/adminauth"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/netguard"
+	"github.com/company/sluice/internal/portalcfg"
+	"github.com/company/sluice/internal/ratelimit"
+	"github.com/company/sluice/internal/store"
+	"github.com/company/sluice/internal/store/postgres"
+	"github.com/company/sluice/internal/testutil"
 )
 
 type adminSession struct {

@@ -7,8 +7,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/dlp"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/dlp"
+	"github.com/company/sluice/internal/store"
 )
 
 const (

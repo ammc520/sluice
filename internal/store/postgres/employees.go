@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/store"
 )
 
 const employeeColumns = `e.id, e.employee_no, e.name, coalesce(e.email,''), e.department_id,

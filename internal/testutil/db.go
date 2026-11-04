@@ -10,7 +10,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 
-	"github.com/company/api-key/migrations"
+	"github.com/company/sluice/migrations"
 )
 
 const testLockKey int64 = 0x6170692d6b6579 // "api-key"

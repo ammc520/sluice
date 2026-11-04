@@ -12,8 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/company/api-key/internal/config"
-	"github.com/company/api-key/internal/metrics"
+	"github.com/company/sluice/internal/config"
+	"github.com/company/sluice/internal/metrics"
 )
 
 // Dependencies are the runtime dependencies the server needs.

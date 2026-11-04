@@ -52,8 +52,8 @@ async function submit(): Promise<void> {
     <div class="login-shell">
       <section class="login-intro">
         <div class="intro-brand">
-          <span class="intro-mark">API</span>
-          <span class="intro-brand-name">安全网关 · DLP 控制台</span>
+          <span class="intro-mark">S</span>
+          <span class="intro-brand-name">Sluice · DLP 控制台</span>
         </div>
 
         <span class="intro-badge">企业级访问控制</span>

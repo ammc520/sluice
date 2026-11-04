@@ -13,10 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/adminauth"
-	"github.com/company/api-key/internal/auth"
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/adminauth"
+	"github.com/company/sluice/internal/auth"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/store"
 )
 
 const (

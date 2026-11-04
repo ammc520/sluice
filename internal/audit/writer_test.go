@@ -14,10 +14,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/company/api-key/internal/crypto"
-	"github.com/company/api-key/internal/dlp"
-	"github.com/company/api-key/internal/metrics"
-	"github.com/company/api-key/internal/store"
+	"github.com/company/sluice/internal/crypto"
+	"github.com/company/sluice/internal/dlp"
+	"github.com/company/sluice/internal/metrics"
+	"github.com/company/sluice/internal/store"
 )
 
 var testAuditTime = time.Date(2026, 11, 2, 10, 0, 0, 0, shanghaiLocation())

@@ -1,5 +1,5 @@
 # Build the Vue admin SPA, then serve it from Caddy. The same Caddy process
-# terminates TLS and proxies /v1 and /admin/api to the gateway container.
+# terminates TLS and proxies /v1 and /admin/api to the Sluice container.
 FROM node:24-alpine AS build
 
 WORKDIR /src
