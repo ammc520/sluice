@@ -89,7 +89,7 @@ Anthropic SDK 会在 base URL 后追加 `/v1/messages`，因此 base URL 不要�
 
 ## 5. 后台与审计检查
 
-每次请求后等待 1–2 秒（审计异步写入），在管理后台逐项核对：
+每次请求后等待 1–2 秒（审计异步写入），登录 `https://api.example.com/admin/login` 后在管理后台逐项核对：
 
 1. **审计日志**：能看到请求 ID、员工、Token 末四位（不显示明文）、模型、状态码、延迟、Prompt/Response Token。
 2. **用量与额度**：Token 的已用额度增加，增量等于上游返回的 `usage.total_tokens`；流式请求同样应写入最终 usage，而不是预留值。
@@ -147,6 +147,12 @@ Anthropic SDK 会在 base URL 后追加 `/v1/messages`，因此 base URL 不要�
 ```bash
 export TEST_DATABASE_URL='postgres://postgres@127.0.0.1:55432/gateway_test?sslmode=disable'
 go test ./internal/e2e -count=1 -v
+```
+
+延迟预算（网关附加延迟、DLP p95）对主机负载和数据库网络路径非常敏感，默认跳过。需要在安静的生产类主机上复核时显式开启：
+
+```bash
+PERF_BUDGETS=1 go test ./internal/e2e -run TestPerformanceBudgets -count=1 -v
 ```
 
 当前基线（2026-11-03，Windows 11 开发机，mock 上游，单次运行）：

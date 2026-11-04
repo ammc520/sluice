@@ -285,19 +285,24 @@
 - 格式：`sk-company-` + 32 字节随机数的 base64url（无填充）。
 - 数据库只存 SHA-256 十六进制摘要，不存明文；另存前 12 位作为后台展示前缀。
 - 创建成功后仅展示一次完整 Key，后台之后只能看到前缀和末四位。
-- 支持禁用、过期、轮换（新建 + 禁用旧 Token）。
+- 员工可持有多个具名 Key；所有 Key 共享员工额度，Key 仅作为凭据。
+- 支持禁用、过期、轮换（新建同名 Key + 禁用旧 Key）与自助吊销。
 
 ### 7.2 额度
 
-- `quota_type`：`requests`（按次数）或 `tokens`（按 Token 用量）。
+额度主体是员工，不是单个 Token。员工的全部 Key 共享 `employee_quotas` 中的同一个 `quota_used`；Key 上只保留可选的单 Key 上限（`tokens.quota_total`，NULL 表示不限额），用于隔离单个应用的消耗。
+
+- 员工额度：`employee_quotas.quota_type` 为 `requests`（按次数）或 `tokens`（按 Token 用量）。
 - `quota_period`：`daily`、`monthly`、`total`。
-- `quota_total` 为 NULL 表示不限额；`quota_used` 为当前周期已用。
+- `quota_total` 为当前允许额度；`quota_used` 为当前周期已用。
 - 周期边界按 `Asia/Shanghai` 计算；访问时惰性重置：若当前时间已跨周期，先把 `quota_used` 归零并更新 `period_start`。
-- 429 与 402 区分：RPM 超限是 429；周期额度耗尽返回 402 Payment Required。
+- 429 与 402 区分：RPM 超限是 429；额度耗尽返回 402 Payment Required，并通过 `scope`（`employee` / `token`）区分个人池与单 Key 上限。
 - 预留与结算：
   - 次数额度：请求前原子 +1，失败不退还（因为已消耗一次尝试）；上游连接失败可退还，按产品策略配置，默认退还。
   - Token 额度：请求前预留 `max_tokens`，响应后按实际 usage 结算，退还差额；usage 缺失按预留计费。
-- 并发安全：在 PostgreSQL 事务中对 Token 行 `SELECT ... FOR UPDATE`，重置周期、检查并更新额度。单机 10 人规模足够；后续可改为 Redis Lua 预检 + PostgreSQL 异步核对。
+  - 单 Key 上限与员工额度在同一事务内预留；Key 上限不足时整体回滚，不会泄漏员工额度。
+- 并发安全：在 PostgreSQL 事务中先对 `employee_quotas` 行做原子 upsert（锁住员工池），再更新 Key 行；重置周期、检查并更新额度都在单条 SQL 内完成。单机 10 人规模足够；后续可改为 Redis Lua 预检 + PostgreSQL 异步核对。
+- 结算使用相对算术（`quota_used - reserved + actual`），并按 `period_start` 判断是否跨周期；跨周期结算只放弃旧周期的写入，不影响新周期。
 - 计量端点分级：
   - 生成类（`chat/completions`、`messages`、`completions`）：按 `max_tokens` 预留，响应后结算。
   - Embeddings：请求前只检查剩余额度 > 0，响应后按 usage 结算；允许最后一次请求小幅超额。
@@ -553,7 +558,19 @@ CREATE TABLE settings (
 
 ## 10. 管理后台 API
 
-前缀 `/admin/api`。所有响应使用 `{ "data": ..., "error": null }` 或 `{ "data": null, "error": {...} }`。
+### URL 命名空间
+
+单域名部署，按用途划分三个顶层前缀，避免管理端、员工端与网关互相占用路径：
+
+| 前缀 | 用途 | 说明 |
+|---|---|---|
+| `/v1/*` | 模型网关 | 客户端持员工 Key 调用，OpenAI / Anthropic 兼容 |
+| `/admin/*`、`/admin/api/*` | 管理后台 | 页面入口 `/admin/login`；根路径下的旧页面（`/dashboard`、`/tokens` 等）已移除 |
+| `/portal/*`、`/portal/api/*` | 员工门户 | 页面入口 `/portal/login`；站点根 `/` 跳转到门户 |
+
+管理端 Cookie 也按此收敛：`admin_session` 仅 Path=`/admin/api`，`csrf_token` Path=`/admin`。升级前写入的根路径（Path=`/`）Cookie 会在下次登录/登出时清除，避免新旧会话并存。
+
+API 前缀 `/admin/api`。所有响应使用 `{ "data": ..., "error": null }` 或 `{ "data": null, "error": {...} }`。
 
 ### 认证与权限
 
@@ -592,7 +609,7 @@ CREATE TABLE settings (
 
 1. **登录**：用户名、密码、错误提示、限流提示。
 2. **概览 Dashboard**：今日调用量/Token/活跃员工/DLP 命中、7/30 天趋势、Top 员工、Top DLP 规则、最近告警。
-3. **员工管理**：列表、搜索、新增/编辑、部门维护、禁用。
+3. **团队管理**：员工列表、搜索、新增/编辑、禁用；部门侧栏支持新建、重命名，删除时可批量转移员工。
 4. **Token 管理**：列表（员工、前缀、额度、周期、已用、状态、过期时间）、创建、编辑、撤销、轮换；创建成功弹窗只展示一次完整 Key，带复制按钮和“我已保存”确认。
 5. **上游管理**：Provider 列表、协议、Base URL、Key 末四位、默认标记、启用/禁用、连通性测试。
 6. **模型路由**：规则列表、匹配类型、目标 Provider、上游模型名、优先级、启用。
@@ -666,8 +683,8 @@ redis        # Redis 7, 仅内网, 可无持久化
 
 - Caddy 配置：
   - `handle /v1/*` → `reverse_proxy gateway:8080`，关闭响应缓冲。
-  - `handle /admin/api/*` → `reverse_proxy gateway:8080`。
-  - `handle` → 静态 `web/dist`，SPA fallback 到 `index.html`。
+  - `handle /admin/api/*`、`/portal/api/*` → `reverse_proxy gateway:8080`。
+  - `handle` → 静态 `web/dist`，SPA fallback 到 `index.html`；`/admin/*` 与 `/portal/*` 由前端路由接管，站点根 `/` 跳转到 `/portal`。
 - 数据卷：`pgdata`、`caddy_data`、`caddy_config`、`audit-spool`、`backups`。
 - 资源建议：2 vCPU / 4 GB 内存起步；Postgres 单独数据盘更稳妥。
 - 时区：容器统一 `Asia/Shanghai`；数据库存 `timestamptz`，展示按上海时区。

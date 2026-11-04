@@ -1475,7 +1475,7 @@ git commit -m "feat: add settings and admin user management APIs"
 
 **Interfaces:**
 - Consumes: Task 7/8/9 的 `/admin/api` 契约。
-- Produces: Vue 3 + TS 应用；`apiClient` 封装 `credentials: "include"` 和 `X-CSRF-Token`（从 `csrf_token` Cookie 读取）；路由守卫在未登录时跳转 `/login`。
+- Produces: Vue 3 + TS 应用；`apiClient` 封装 `credentials: "include"` 和 `X-CSRF-Token`（从 `csrf_token` Cookie 读取）；路由守卫在未登录时跳转 `/admin/login`。
 
 - [ ] **Step 1: 初始化前端并写失败测试**
 
@@ -1529,7 +1529,7 @@ Expected: FAIL，`apiClient` 未定义。
 - `auth` store：`me()`、`login()`、`logout()`、`isAuthenticated`。
 - `AdminLayout`：侧边栏菜单（概览、员工、Token、上游、模型路由、DLP、审计、设置、管理员），顶部用户/退出。
 - `LoginView`：用户名密码、错误提示。
-- 路由守卫：除 `/login` 外要求登录。
+- 路由守卫：除 `/admin/login`（管理端）与 `/portal/login`（员工端）外要求登录。
 - 为尚未实现的菜单页创建最小占位 view（只渲染标题），保证本任务结束时可构建；后续任务替换。
 - Dashboard 占位以待 Task 22。
 

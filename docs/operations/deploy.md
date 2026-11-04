@@ -4,7 +4,7 @@
 
 | 服务 | 作用 | 是否对公网开放 |
 |---|---|---|
-| `caddy` | 自动 HTTPS、静态管理后台、反代 `/v1` 与 `/admin/api` | 仅 80/443 |
+| `caddy` | 自动 HTTPS、静态管理后台与员工门户、反代 `/v1`、`/admin/api`、`/portal/api` | 仅 80/443 |
 | `gateway` | Go 网关，SQL 迁移、DLP、配额、审计、管理 API | 否 |
 | `postgres` | PostgreSQL 16 数据 | 否 |
 | `redis` | 限流与会话缓存（可丢） | 否 |
@@ -84,7 +84,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://api.example.com/v1/models
 
 预期：`/readyz` 返回 `{"status":"ready"}`；首页返回 200；未携带 Token 的 `/v1/models` 返回 401。`/healthz`、`/readyz`、`/metrics` 对公网返回 404，只能从容器内部访问。
 
-首次登录管理后台 `https://api.example.com`：
+首次登录管理后台 `https://api.example.com/admin/login`（员工门户入口为 `/portal/login`）：
 
 1. 使用 `BOOTSTRAP_ADMIN_USERNAME` / `BOOTSTRAP_ADMIN_PASSWORD` 登录。
 2. 进入「管理员账号」，为超级管理员重置强密码（会使当前会话失效，需要重新登录）。
