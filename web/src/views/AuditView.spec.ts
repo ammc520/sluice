@@ -83,6 +83,21 @@ describe('AuditView', () => {
           response({ items: [], total: 0, page: 1, page_size: 200 }),
         )
       }
+      if (url.includes('/reveal')) {
+        return Promise.resolve(
+          response({
+            prompt: JSON.stringify({
+              system: '系统规则',
+              messages: [{ role: 'user', content: '你好' }],
+            }),
+            response: JSON.stringify({
+              type: 'message',
+              content: [{ type: 'text', text: '世界' }],
+              usage: { input_tokens: 12, output_tokens: 3 },
+            }),
+          }),
+        )
+      }
       return Promise.resolve(response({ items: [record], next_cursor: '' }))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -106,5 +121,28 @@ describe('AuditView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="reveal-confirm"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('renders structured plaintext and hides the confirm action afterwards', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    await wrapper.find('[data-test="reveal"]').trigger('click')
+    await flushPromises()
+    await wrapper.find('[data-test="reveal-reason"]').setValue('customer complaint')
+    await wrapper.find('[data-test="reveal-confirm"]').trigger('click')
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('系统规则')
+    expect(text).toContain('你好')
+    expect(text).toContain('世界')
+    expect(text).toContain('输入 12')
+    // The audited request must not be repeated after a successful reveal.
+    expect(wrapper.find('[data-test="reveal-confirm"]').exists()).toBe(false)
+    const revealCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes('/reveal'),
+    )
+    expect(revealCalls).toHaveLength(1)
   })
 })

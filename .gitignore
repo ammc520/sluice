@@ -11,3 +11,4 @@ spool/
 .DS_Store
 
 .tmp/
+.playwright-mcp/

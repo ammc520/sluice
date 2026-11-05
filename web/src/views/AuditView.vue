@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { CopyDocument, Refresh, Search } from '@element-plus/icons-vue'
 
 import { api } from '../api/client'
 import { apiErrorMessage } from '../api/errors'
@@ -19,6 +19,12 @@ import {
   shanghaiDateDaysAgo,
   toShanghaiDate,
 } from '../utils/datetime'
+import { formatNumber } from '../utils/format'
+import {
+  formatPrompt,
+  formatResponse,
+  prettyJSON,
+} from '../utils/promptFormat'
 
 type DLPActionFilter = '' | 'none' | 'block' | 'mask' | 'audit'
 
@@ -89,10 +95,34 @@ const revealError = ref('')
 const revealedPrompt = ref('')
 const revealedResponse = ref('')
 const hasRevealed = ref(false)
+const revealTab = ref<'structured' | 'raw'>('structured')
 
 const revealReasonLength = computed(
   () => Array.from(revealReason.value.trim()).length,
 )
+
+const revealPromptView = computed(() => formatPrompt(revealedPrompt.value))
+const revealResponseView = computed(() => formatResponse(revealedResponse.value))
+const revealPromptRaw = computed(() => prettyJSON(revealedPrompt.value))
+const revealResponseRaw = computed(() => prettyJSON(revealedResponse.value))
+
+const revealUsage = computed(() => {
+  const view = revealResponseView.value
+  const parts: string[] = []
+  if (view.inputTokens !== null) {
+    parts.push(`输入 ${formatNumber(view.inputTokens)}`)
+  }
+  if (view.outputTokens !== null) {
+    parts.push(`输出 ${formatNumber(view.outputTokens)}`)
+  }
+  if (view.cacheReadTokens !== null) {
+    parts.push(`缓存读 ${formatNumber(view.cacheReadTokens)}`)
+  }
+  if (view.cacheCreationTokens !== null) {
+    parts.push(`缓存写 ${formatNumber(view.cacheCreationTokens)}`)
+  }
+  return parts.join(' · ')
+})
 
 const actionLabels: Record<string, string> = {
   block: '阻断',
@@ -125,6 +155,60 @@ function actionLabel(action: string): string {
 
 function actionTagType(action: string): 'danger' | 'warning' | 'info' {
   return actionTagTypes[action] ?? 'info'
+}
+
+const roleLabels: Record<string, string> = {
+  system: '系统',
+  user: '用户',
+  assistant: '助手',
+  tool: '工具',
+  unknown: '未知角色',
+}
+
+function roleLabel(role: string): string {
+  return roleLabels[role] ?? role
+}
+
+function roleTagType(role: string): 'primary' | 'success' | 'warning' | 'info' {
+  if (role === 'user') return 'primary'
+  if (role === 'assistant') return 'success'
+  if (role === 'tool') return 'warning'
+  return 'info'
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
+  if (window.isSecureContext && navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Fall through to the legacy path for HTTP-only deployments.
+    }
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  let copied = false
+  try {
+    copied = document.execCommand('copy')
+  } catch {
+    copied = false
+  }
+  document.body.removeChild(textarea)
+  return copied
+}
+
+async function copyRevealed(text: string, label: string): Promise<void> {
+  if (!text) return
+  if (await writeClipboard(text)) {
+    ElMessage.success(`${label}已复制`)
+  } else {
+    ElMessage.error('复制失败，请手动选择文本')
+  }
 }
 
 async function loadEmployees(): Promise<void> {
@@ -251,6 +335,7 @@ function openReveal(row: AuditLog): void {
   revealedPrompt.value = ''
   revealedResponse.value = ''
   hasRevealed.value = false
+  revealTab.value = 'structured'
   revealVisible.value = true
 }
 
@@ -266,11 +351,12 @@ function onRevealClosed(): void {
   revealedPrompt.value = ''
   revealedResponse.value = ''
   hasRevealed.value = false
+  revealTab.value = 'structured'
 }
 
 async function confirmReveal(): Promise<void> {
   const record = revealRecord.value
-  if (!record || revealReasonLength.value < 5) return
+  if (!record || hasRevealed.value || revealReasonLength.value < 5) return
 
   revealLoading.value = true
   revealError.value = ''
@@ -279,9 +365,13 @@ async function confirmReveal(): Promise<void> {
       `/audit/${record.id}/reveal`,
       { reason: revealReason.value.trim() },
     )
-    revealedPrompt.value = result.prompt
-    revealedResponse.value = result.response
+    revealedPrompt.value = result.prompt ?? ''
+    revealedResponse.value = result.response ?? ''
     hasRevealed.value = true
+
+    const structured = formatPrompt(revealedPrompt.value).parsed
+      || formatResponse(revealedResponse.value).parsed
+    revealTab.value = structured ? 'structured' : 'raw'
   } catch (error) {
     revealError.value = apiErrorMessage(error, '原文查看失败')
   } finally {
@@ -576,55 +666,271 @@ onMounted(async () => {
 
     <el-dialog
       v-model="revealVisible"
-      title="查看敏感原文"
-      width="720px"
+      title="查看请求原文"
+      width="min(960px, 94vw)"
       :close-on-click-modal="false"
+      class="reveal-dialog"
       @closed="onRevealClosed"
     >
-      <el-alert
-        title="此操作会记录管理员账号、时间、来源 IP 与查看原因。查看结果不会缓存。"
-        type="warning"
-        :closable="false"
-        show-icon
-        class="reveal-alert"
-      />
-
-      <el-form label-position="top" @submit.prevent="confirmReveal">
-        <el-form-item label="查看原因（至少 5 个字符）" required>
-          <el-input
-            v-model="revealReason"
-            data-test="reveal-reason"
-            type="textarea"
-            :rows="3"
-            maxlength="500"
-            show-word-limit
-            placeholder="例如：处理客户投诉，需要核对员工提交的提示词"
-          />
-        </el-form-item>
-      </el-form>
-
-      <el-alert
-        v-if="revealError"
-        :title="revealError"
-        type="error"
-        :closable="false"
-        show-icon
-      />
-
-      <template v-if="hasRevealed">
-        <div class="reveal-section">
-          <h4>Prompt</h4>
-          <pre class="reveal-text">{{ revealedPrompt || '（无内容）' }}</pre>
+      <template v-if="revealRecord">
+        <div class="reveal-context">
+          <span class="reveal-context-item">
+            <span class="context-label">员工</span>
+            {{ employeeLabel(revealRecord.employee_id) }}
+          </span>
+          <span class="reveal-context-item">
+            <span class="context-label">模型</span>
+            {{ revealRecord.model || '—' }}
+          </span>
+          <span class="reveal-context-item">
+            <span class="context-label">时间</span>
+            {{ formatDateTime(revealRecord.event_time) }}
+          </span>
+          <span class="reveal-context-item reveal-request-id">
+            <span class="context-label">请求 ID</span>
+            <code :title="revealRecord.request_id">{{ revealRecord.request_id }}</code>
+          </span>
+          <span
+            v-for="(hit, index) in revealRecord.dlp_hits"
+            :key="`${hit.rule_id}-${index}`"
+            class="reveal-context-item"
+          >
+            <el-tag :type="actionTagType(hit.action)" size="small" effect="plain">
+              DLP · {{ hit.rule_name }}（{{ actionLabel(hit.action) }}）
+            </el-tag>
+          </span>
         </div>
-        <div class="reveal-section">
-          <h4>Response</h4>
-          <pre class="reveal-text">{{ revealedResponse || '（无内容）' }}</pre>
-        </div>
+
+        <el-alert
+          title="此操作会记录管理员账号、时间、来源 IP 与查看原因。查看结果不会缓存，关闭弹窗即清除。"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="reveal-alert"
+        />
+
+        <el-form
+          v-if="!hasRevealed"
+          label-position="top"
+          @submit.prevent="confirmReveal"
+        >
+          <el-form-item label="查看原因（至少 5 个字符）" required>
+            <el-input
+              v-model="revealReason"
+              data-test="reveal-reason"
+              type="textarea"
+              :rows="3"
+              maxlength="500"
+              show-word-limit
+              placeholder="例如：处理客户投诉，需要核对员工提交的提示词"
+            />
+          </el-form-item>
+        </el-form>
+
+        <el-alert
+          v-if="revealError"
+          :title="revealError"
+          type="error"
+          :closable="false"
+          show-icon
+        />
+
+        <template v-if="hasRevealed">
+          <div class="reveal-toolbar">
+            <el-radio-group v-model="revealTab" size="small">
+              <el-radio-button value="structured">结构化</el-radio-button>
+              <el-radio-button value="raw">原始数据</el-radio-button>
+            </el-radio-group>
+            <span class="reveal-toolbar-hint">关闭后立即清除，不缓存</span>
+          </div>
+
+          <div v-if="revealTab === 'structured'" class="reveal-panels">
+            <section class="reveal-panel">
+              <header class="panel-head">
+                <h4>提示词</h4>
+                <el-button
+                  v-if="revealedPrompt"
+                  text
+                  size="small"
+                  :icon="CopyDocument"
+                  @click="copyRevealed(revealedPrompt, '提示词原文')"
+                >
+                  复制原文
+                </el-button>
+              </header>
+
+              <div v-if="!revealedPrompt" class="reveal-empty">
+                该请求没有保存提示词。
+              </div>
+              <template v-else-if="revealPromptView.parsed">
+                <details v-if="revealPromptView.system" class="message-block">
+                  <summary>
+                    系统提示词 · {{ revealPromptView.system.length }} 字符
+                  </summary>
+                  <div class="message-text">{{ revealPromptView.system }}</div>
+                </details>
+
+                <div
+                  v-for="(message, index) in revealPromptView.messages"
+                  :key="index"
+                  class="message-card"
+                  :class="`role-${message.role}`"
+                >
+                  <div class="message-role">
+                    <el-tag
+                      size="small"
+                      effect="plain"
+                      :type="roleTagType(message.role)"
+                    >
+                      {{ roleLabel(message.role) }}
+                    </el-tag>
+                    <span class="message-index">#{{ index + 1 }}</span>
+                  </div>
+                  <div class="message-text">{{ message.text }}</div>
+                </div>
+
+                <p
+                  v-if="revealPromptView.messages.length === 0"
+                  class="reveal-empty"
+                >
+                  仅包含系统提示词。
+                </p>
+              </template>
+              <template v-else>
+                <p class="reveal-note">未能解析为消息结构，按原始文本显示。</p>
+                <pre class="reveal-text">{{ revealedPrompt }}</pre>
+              </template>
+            </section>
+
+            <section class="reveal-panel">
+              <header class="panel-head">
+                <h4>响应</h4>
+                <el-button
+                  v-if="revealedResponse"
+                  text
+                  size="small"
+                  :icon="CopyDocument"
+                  @click="copyRevealed(revealedResponse, '响应原文')"
+                >
+                  复制原文
+                </el-button>
+              </header>
+
+              <div v-if="!revealedResponse" class="reveal-empty">
+                该请求没有保存响应。
+              </div>
+              <template v-else-if="revealResponseView.parsed">
+                <div class="response-meta">
+                  <el-tag
+                    v-if="revealResponseView.streamed"
+                    size="small"
+                    effect="plain"
+                    type="info"
+                  >
+                    流式响应
+                  </el-tag>
+                  <el-tag
+                    v-if="revealResponseView.model"
+                    size="small"
+                    effect="plain"
+                  >
+                    {{ revealResponseView.model }}
+                  </el-tag>
+                  <el-tag
+                    v-if="revealResponseView.stopReason"
+                    size="small"
+                    effect="plain"
+                  >
+                    结束原因：{{ revealResponseView.stopReason }}
+                  </el-tag>
+                  <span v-if="revealUsage" class="response-usage">
+                    {{ revealUsage }}
+                  </span>
+                </div>
+
+                <details
+                  v-if="revealResponseView.thinking"
+                  class="message-block"
+                >
+                  <summary>
+                    思考过程 · {{ revealResponseView.thinking.length }} 字符
+                  </summary>
+                  <div class="message-text">{{ revealResponseView.thinking }}</div>
+                </details>
+
+                <div
+                  v-if="revealResponseView.text"
+                  class="message-card role-assistant"
+                >
+                  <div class="message-role">
+                    <el-tag size="small" effect="plain" type="success">助手</el-tag>
+                  </div>
+                  <div class="message-text">{{ revealResponseView.text }}</div>
+                </div>
+
+                <p
+                  v-if="!revealResponseView.text && !revealResponseView.thinking"
+                  class="reveal-empty"
+                >
+                  响应中没有可展示的文本。
+                </p>
+              </template>
+              <template v-else>
+                <p class="reveal-note">未能解析为消息结构，按原始文本显示。</p>
+                <pre class="reveal-text">{{ revealedResponse }}</pre>
+              </template>
+            </section>
+          </div>
+
+          <div v-else class="reveal-panels">
+            <section class="reveal-panel">
+              <header class="panel-head">
+                <h4>提示词 · 原始数据</h4>
+                <el-button
+                  v-if="revealedPrompt"
+                  text
+                  size="small"
+                  :icon="CopyDocument"
+                  @click="copyRevealed(revealedPrompt, '提示词原文')"
+                >
+                  复制原文
+                </el-button>
+              </header>
+              <pre v-if="revealedPrompt" class="reveal-text reveal-code">{{
+                revealPromptRaw
+              }}</pre>
+              <div v-else class="reveal-empty">该请求没有保存提示词。</div>
+            </section>
+
+            <section class="reveal-panel">
+              <header class="panel-head">
+                <h4>响应 · 原始数据</h4>
+                <el-button
+                  v-if="revealedResponse"
+                  text
+                  size="small"
+                  :icon="CopyDocument"
+                  @click="copyRevealed(revealedResponse, '响应原文')"
+                >
+                  复制原文
+                </el-button>
+              </header>
+              <pre v-if="revealedResponse" class="reveal-text reveal-code">{{
+                revealResponseRaw
+              }}</pre>
+              <div v-else class="reveal-empty">该请求没有保存响应。</div>
+            </section>
+          </div>
+        </template>
       </template>
 
       <template #footer>
-        <el-button @click="closeReveal">关闭</el-button>
+        <span v-if="!hasRevealed" class="reveal-footer-hint">
+          仅超级管理员可查看，操作会写入审计日志
+        </span>
+        <el-button @click="closeReveal">{{ hasRevealed ? '关闭' : '取消' }}</el-button>
         <el-button
+          v-if="!hasRevealed"
           data-test="reveal-confirm"
           type="primary"
           :loading="revealLoading"
@@ -756,8 +1062,7 @@ onMounted(async () => {
   margin-top: 22px;
 }
 
-.detail-section h4,
-.reveal-section h4 {
+.detail-section h4 {
   margin: 0 0 10px;
   color: #33415c;
   font-size: 13px;
@@ -770,27 +1075,204 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.reveal-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--gw-border);
+  border-radius: 10px;
+  background: #f8fafc;
+  color: var(--gw-text-secondary);
+  font-size: 12px;
+}
+
+.reveal-context-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.context-label {
+  color: var(--gw-text-muted);
+  font-size: 11px;
+}
+
+.reveal-request-id code {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  color: #33415c;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
 .reveal-alert {
   margin-bottom: 16px;
 }
 
-.reveal-section {
-  margin-top: 18px;
+.reveal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.reveal-toolbar-hint {
+  color: var(--gw-text-muted);
+  font-size: 11px;
+}
+
+.reveal-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: 52vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.reveal-panel {
+  padding: 14px 16px;
+  border: 1px solid var(--gw-border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-head h4 {
+  margin: 0;
+  color: #33415c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.message-card {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid #e3e9f2;
+  border-left: 3px solid #c7d2e3;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+
+.message-card.role-user {
+  border-left-color: #3b82f6;
+  background: #f5f9ff;
+}
+
+.message-card.role-assistant {
+  border-left-color: #10b981;
+  background: #f4fbf7;
+}
+
+.message-card.role-system {
+  border-left-color: #94a3b8;
+}
+
+.message-role {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.message-index {
+  color: var(--gw-text-muted);
+  font-size: 11px;
+}
+
+.message-text {
+  color: #26354c;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.message-block {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border: 1px dashed #d8e1ee;
+  border-radius: 10px;
+  background: #fafbfd;
+}
+
+.message-block summary {
+  cursor: pointer;
+  color: #51627d;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.message-block .message-text {
+  margin-top: 10px;
+}
+
+.response-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.response-usage {
+  color: var(--gw-text-muted);
+  font-size: 11px;
+}
+
+.reveal-empty {
+  padding: 6px 0;
+  color: var(--gw-text-muted);
+  font-size: 12px;
+}
+
+.reveal-note {
+  margin: 0 0 8px;
+  color: var(--gw-text-muted);
+  font-size: 11px;
 }
 
 .reveal-text {
-  max-height: 240px;
+  max-height: 320px;
   margin: 0;
   padding: 14px;
   overflow: auto;
+  border: 1px solid #e3e9f2;
   border-radius: 10px;
-  background: #16212f;
-  color: #d8e4f2;
+  background: #f7f9fc;
+  color: #26354c;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.reveal-code {
+  border-color: #16212f;
+  background: #16212f;
+  color: #d8e4f2;
+}
+
+.reveal-footer-hint {
+  margin-right: auto;
+  color: var(--gw-text-muted);
+  font-size: 11px;
 }
 
 code {
